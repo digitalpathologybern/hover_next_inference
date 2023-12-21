@@ -11,28 +11,31 @@ from timeit import default_timer as timer
 from datetime import timedelta
 
 
-def main(args: dict):
+def main(params: dict):
     """
     Start nuclei segmentation and classification pipeline using specified parameters from argparse
     """
 
-    if args["m"] not in ["mpq", "f1", "hd", "r2"]:
-        args["m"] = "f1"
+    if params["m"] not in ["mpq", "f1", "hd", "r2"]:
+        params["m"] = "f1"
         print("invalid metric, falling back to f1")
     else:
-        print("optimizing postprocessing for: ", args["m"])
+        print("optimizing postprocessing for: ", params["m"])
 
-    args["p"] = args["p"].rstrip()
-    args["root"] = os.path.dirname(__file__)
-    args["o"] = os.path.join(args["root"], args["o"])
-    args["data_dirs"] = [os.path.join(args["root"], c) for c in args["cp"].split(",")]
+    params["p"] = params["p"].rstrip()
+    params["root"] = os.path.dirname(__file__)
+    params["o"] = os.path.join(params["root"], params["o"])
+    params["data_dirs"] = [
+        os.path.join(params["root"], c) for c in params["cp"].split(",")
+    ]
 
-    print("input path: ", args["p"])
-    print("saving results to:", args["o"])
-    print("loading model from:", args["data_dirs"])
+    print("input path: ", params["p"])
+    print("saving results to:", params["o"])
+    print("loading model from:", params["data_dirs"])
 
+    start_time = timer()
     # Run per tile inference and store results
-    args, z = inference_main(args)
+    params, z = inference_main(params)
     print(
         "::: finished or skipped inference after",
         timedelta(seconds=timer() - start_time),
@@ -40,24 +43,28 @@ def main(args: dict):
     process_timer = timer()
     # for faster processing, only run inference on a GPU node and
     # do post-processing on basic CPU nodes
-    if args["slurm"]:
+    if params["slurm"]:
         print("submitting slurm job for postprocessing")
-        try:
+        if z is not None:
             z[0].store.close()
             z[1].store.close()
-        except:
-            pass
         sys.exit(0)
     # Stitch tiles together and postprocess to get instance segmentation
-    if not os.path.exists(os.path.join(args["output_dir"], "pinst_pp.zip")):
+    if not os.path.exists(os.path.join(params["output_dir"], "pinst_pp.zip")):
         print("running post-processing")
-        print("downsample: ", args["ds"])
-        print("save polygons", args["save_polygon"])
+        print("downsample: ", params["ds"])
+        print("save polygons", params["save_polygon"])
 
         z_pp = post_process_main(
-            args,
+            params,
             z,
         )
+        if not params["keep_raw"]:
+            try:
+                os.remove(params["model_out_p"] + "_inst.zip")
+                os.remove(params["model_out_p"] + "_cls.zip")
+            except FileNotFoundError:
+                pass
     else:
         z_pp = None
     print(
@@ -66,17 +73,14 @@ def main(args: dict):
         "total elapsed time",
         timedelta(seconds=timer() - start_time),
     )
-    try:
+    if z_pp is not None:
         z_pp.store.close()
-    except:
-        pass
     print("done")
 
 
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
-    start_time = timer()
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", type=str, default=None, help="path to wsi", required=True)
@@ -144,5 +148,10 @@ if __name__ == "__main__":
         default=16,
         help="number of workers for postprocessing, maximally set this to number of cores",
     )
-    args = vars(parser.parse_args())
-    main(args)
+    parser.add_argument(
+        "--keep_raw",
+        action="store_true",
+        help="keep raw predictions (can be large files for particularly for pannuke)",
+    )
+    params = vars(parser.parse_params())
+    main(params)

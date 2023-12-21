@@ -9,9 +9,8 @@ import pathlib
 from tqdm import tqdm
 import cv2
 import mahotas as mh
+from src.constants import LUT_MAGNIFICATION_MPP, LUT_MAGNIFICATION_X
 
-LUT_MAGNIFICATION_X = [20, 40, 80]
-LUT_MAGNIFICATION_MPP = [0.485, 0.2425, 0.124]
 
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 

@@ -1,26 +1,25 @@
-import torch
 import os
+import copy
+import multiprocessing
+from typing import List, Union, Tuple
+import torch
 import numpy as np
 import zarr
-import threading
-import multiprocessing
-import copy
 from numcodecs import Blosc
 from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
 from scipy.special import softmax
-
 from src.multi_head_unet import get_model, load_checkpoint
 from src.data_utils import WholeSlideDataset, NpyDataset
 from src.augmentations import color_augmentations
 from src.spatial_augmenter import SpatialAugmenter
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-from typing import List, Union, Tuple
+
 
 
 def inference_main(
-    args: dict,
+    params: dict,
 ) -> Tuple[str, str, Union[Tuple[zarr.ZipStore, zarr.ZipStore], None]]:
     """
         Run inference on wsi of different formats as well as ome.tif and .npy stacked images. For npy the format should be e.g. [100,1024,1024,3]
@@ -57,47 +56,47 @@ def inference_main(
             whether running pannuke processing
         """
 
-    print(repr(args["p"]))
-    _, ext = os.path.splitext(args["p"])
-    fn = args["p"].split(os.sep)[-1].split(ext)[0]
-    args["output_dir"] = os.path.join(args["o"], fn)
-    if not os.path.isdir(args["o"]):
-        os.makedirs(args["o"])
-    args["model_out_p"] = args["output_dir"] + "/" + fn + "_raw_" + args["ts"]
-    prog_path = os.path.join(args["output_dir"], "progress.txt")
-    if sum(["pannuke" in x for x in args["data_dirs"]]) > 0:
+    print(repr(params["p"]))
+    _, ext = os.path.splitext(params["p"])
+    fn = params["p"].split(os.sep)[-1].split(ext)[0]
+    params["output_dir"] = os.path.join(params["o"], fn)
+    if not os.path.isdir(params["o"]):
+        os.makedirs(params["o"])
+    params["model_out_p"] = params["output_dir"] + "/" + fn + "_raw_" + params["ts"]
+    prog_path = os.path.join(params["output_dir"], "progress.txt")
+    if sum(["pannuke" in x for x in params["data_dirs"]]) > 0:
         print("running pannuke inference at .25mpp")
-        args["pannuke"] = True
+        params["pannuke"] = True
     else:
-        args["pannuke"] = False
+        params["pannuke"] = False
     if (not os.path.exists(prog_path)) & (
-        os.path.exists(args["model_out_p"] + "_inst.zip")
+        os.path.exists(params["model_out_p"] + "_inst.zip")
     ):
         print("inference already completed, skipping")
-        return args, None
+        return params, None
 
     if device == "cpu":
         print("running inference on cpu, please verify that this is intended")
 
     # create datasets from specified input
 
-    channels = 6 if args["pannuke"] else 8
+    channels = 6 if params["pannuke"] else 8
 
     if np.isin(ext, [".npy", ".npz"]):
         dataset = NpyDataset(
-            args["p"],
-            args["ts"],
-            padding_factor=args["ov"],
+            params["p"],
+            params["ts"],
+            padding_factor=params["ov"],
             ratio_object_thresh=0.3,
             min_tiss=0.1,
         )
     else:
-        level = 40 if args["pannuke"] else 20
+        level = 40 if params["pannuke"] else 20
         dataset = WholeSlideDataset(
-            args["p"],
-            crop_sizes_px=[args["ts"]],
+            params["p"],
+            crop_sizes_px=[params["ts"]],
             crop_magnifications=[level],
-            padding_factor=args["ov"],
+            padding_factor=params["ov"],
             remove_background=True,
             ratio_object_thresh=0.0001,
             global_norm=True,
@@ -106,18 +105,18 @@ def inference_main(
     # setup output files to write to, also create dummy file to resume inference if interruped
     if not os.path.exists(prog_path):
         z_inst = zarr.open(
-            args["model_out_p"] + "_inst.zip",
+            params["model_out_p"] + "_inst.zip",
             mode="w",
-            shape=(len(dataset), 3, args["ts"], args["ts"]),
-            chunks=(args["bs"], 3, args["ts"], args["ts"]),
+            shape=(len(dataset), 3, params["ts"], params["ts"]),
+            chunks=(params["bs"], 3, params["ts"], params["ts"]),
             dtype="f4",
             compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.BITSHUFFLE),
         )
         z_cls = zarr.open(
-            args["model_out_p"] + "_cls.zip",
+            params["model_out_p"] + "_cls.zip",
             mode="w",
-            shape=(len(dataset), channels, args["ts"], args["ts"]),
-            chunks=(args["bs"], channels, args["ts"], args["ts"]),
+            shape=(len(dataset), channels, params["ts"], params["ts"]),
+            chunks=(params["bs"], channels, params["ts"], params["ts"]),
             dtype="u1",
             compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.BITSHUFFLE),
         )
@@ -126,15 +125,15 @@ def inference_main(
             f.write("0")
         inf_start = 0
     else:
-        z_inst = zarr.open(args["model_out_p"] + "_inst.zip", mode="a")
-        z_cls = zarr.open(args["model_out_p"] + "_cls.zip", mode="a")
+        z_inst = zarr.open(params["model_out_p"] + "_inst.zip", mode="a")
+        z_cls = zarr.open(params["model_out_p"] + "_cls.zip", mode="a")
         inf_start = int(open(prog_path, "r").read())
     if inf_start != 0:
         print("resuming inference from", inf_start)
         dataset = Subset(dataset, range(inf_start, len(dataset)))
     # get model/ models and load checkpoint
     models = []
-    for pth in args["data_dirs"]:
+    for pth in params["data_dirs"]:
         checkpoint_path = f"{pth}/train/best_model"
         with open(f"{pth}/params.toml", "r") as f:
             enc = [
@@ -154,7 +153,7 @@ def inference_main(
         models.append(copy.deepcopy(model))
 
     dataloader = DataLoader(
-        dataset, batch_size=args["bs"], shuffle=False, num_workers=4, pin_memory=True
+        dataset, batch_size=params["bs"], shuffle=False, num_workers=4, pin_memory=True
     )
     # parameters for test time augmentations, do not change
     aug_params = {
@@ -197,16 +196,16 @@ def inference_main(
         raw = raw.permute(0, 3, 1, 2)  # BHWC -> BCHW
         with torch.inference_mode():
             ct, inst = batch_pseudolabel_ensemb(
-                raw, models, args["tta"], augmenter, color_aug_fn
+                raw, models, params["tta"], augmenter, color_aug_fn
             )
             io_queue.put((ct.cpu().detach().numpy(), inst.cpu().detach().numpy(), zc))
-            zc += args["bs"]
+            zc += params["bs"]
     io_queue.put((None,None,None))
     io_queue.join()
     # clean up
     if os.path.exists(prog_path):
         os.remove(prog_path)
-    return args, (z_inst, z_cls)
+    return params, (z_inst, z_cls)
     # return output_dir, model_out_p, (z_inst, z_cls), pannuke
 
 
@@ -244,7 +243,7 @@ def batch_pseudolabel_ensemb(
     """
     tmp_3c_view = []
     tmp_ct_view = []
-    for nv in range(nviews // len(models)):
+    for _ in range(nviews // len(models)):
         aug.interpolation = "bilinear"
         view_aug = aug.forward_transform(raw)
         aug.interpolation = "nearest"

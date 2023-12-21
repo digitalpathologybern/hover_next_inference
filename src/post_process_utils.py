@@ -5,7 +5,6 @@ import gc
 import json
 import os
 import time
-import tifffile as tif
 import openslide
 
 from skimage.segmentation import watershed
@@ -19,7 +18,7 @@ from src.constants import (
     MAX_THRESHS_PANNUKE,
     MAX_HOLE_SIZE,
 )
-from src.data_utils import center_crop, WholeSlideDataset, OmeTiffDataset, NpyDataset
+from src.data_utils import center_crop, WholeSlideDataset, NpyDataset
 
 
 def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
@@ -28,7 +27,7 @@ def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
     for id_, cen in props:
         try:
             pcls_new[str(id_)] = (pcls_[str(id_)], (cen[0] + t_[2], cen[1] + t_[0]))
-        except:
+        except KeyError:
             pcls_new[str(id_)] = (pcls_out[str(id_)], (cen[0] + t_[2], cen[1] + t_[0]))
 
     new_ids = [p[0] for p in props]
@@ -36,17 +35,17 @@ def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
     for i in np.setdiff1d(old_ids, new_ids):
         try:
             del pcls_out[str(i)]
-        except:
+        except KeyError:
             pass
     for i in np.setdiff1d(new_ids, initial_ids):
         try:
             del pcls_new[str(i)]
-        except:
+        except KeyError:
             pass
     return pcls_out | pcls_new
 
 
-def writer_thread(pinst_out, res, args):
+def writer_thread(pinst_out, res, params):
     running_max = 0
     pcls_out = {}
     while True:
@@ -60,7 +59,7 @@ def writer_thread(pinst_out, res, args):
             print("empty, skipping", t_)
             res.task_done()
         else:
-            if args["npy"]:
+            if params["npy"]:
                 pinst_[pinst_ != 0] += running_max
                 pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
                 running_max += max_
@@ -71,7 +70,7 @@ def writer_thread(pinst_out, res, args):
                 pinst_ = np.asarray(pinst_, dtype=np.int32)
                 start_time = time.process_time()
                 ov_regions, local_regions, which = get_overlap_regions(
-                    t_, args["pp_overlap"], pinst_out.shape
+                    t_, params["pp_overlap"], pinst_out.shape
                 )
                 pinst_[pinst_ != 0] += running_max
                 pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
@@ -124,46 +123,46 @@ def writer_thread(pinst_out, res, args):
     return pinst_out, pcls_out
 
 
-def work(tcrd, res, ds_coord, wsis, z, args):
+def work(tcrd, res, ds_coord, wsis, z, params):
     out_img = gen_tile_map(
         tcrd,
         ds_coord,
-        args["ccrop"],
-        model_out_p=args["model_out_p"],
+        params["ccrop"],
+        model_out_p=params["model_out_p"],
         which="_inst",
-        dim=args["out_img_shape"][-3],
-        downsample=args["ds"],
+        dim=params["out_img_shape"][-3],
+        downsample=params["ds"],
         z=z,
-        npy=args["npy"],
+        npy=params["npy"],
     )
     out_cls = gen_tile_map(
         tcrd,
         ds_coord,
-        args["ccrop"],
-        model_out_p=args["model_out_p"],
+        params["ccrop"],
+        model_out_p=params["model_out_p"],
         which="_cls",
-        dim=args["out_cls_shape"][-3],
-        downsample=args["ds"],
+        dim=params["out_cls_shape"][-3],
+        downsample=params["ds"],
         z=z,
-        npy=args["npy"],
+        npy=params["npy"],
     )
-    if args["ds"] > 0:
-        tcrd = [int(t // (2 ** args["ds"])) for t in tcrd]
+    if params["ds"] > 0:
+        tcrd = [int(t // (2 ** params["ds"])) for t in tcrd]
         tcrd[1] = tcrd[0] + out_cls.shape[-1]
         tcrd[3] = tcrd[2] + out_cls.shape[-2]
-    best_min_threshs = MIN_THRESHS_PANNUKE if args["pannuke"] else MIN_THRESHS_LIZARD
-    best_max_threshs = MAX_THRESHS_PANNUKE if args["pannuke"] else MAX_THRESHS_LIZARD
+    best_min_threshs = MIN_THRESHS_PANNUKE if params["pannuke"] else MIN_THRESHS_LIZARD
+    best_max_threshs = MAX_THRESHS_PANNUKE if params["pannuke"] else MAX_THRESHS_LIZARD
 
-    best_min_threshs = np.array(best_min_threshs) // (4 ** (args["ds"]))
-    best_max_threshs = np.array(best_max_threshs) // (4 ** (args["ds"]))
+    best_min_threshs = np.array(best_min_threshs) // (4 ** (params["ds"]))
+    best_max_threshs = np.array(best_max_threshs) // (4 ** (params["ds"]))
 
     # using apply_func to apply along axis for npy stacks
     pred_inst, skip = faster_instance_seg(
-        out_img, out_cls, best_fg_thresh_cl, best_seed_thresh_cl
+        out_img, out_cls, params["best_fg_thresh_cl"], params["best_seed_thresh_cl"]
     )
     del out_img
     gc.collect()
-    max_hole_size = MAX_HOLE_SIZE // (4 ** args["ds"])
+    max_hole_size = MAX_HOLE_SIZE // (4 ** params["ds"])
     if skip:
         pred_inst = zarr.array(
             pred_inst, compressor=Blosc(cname="zstd", clevel=3, shuffle=Blosc.SHUFFLE)
@@ -174,13 +173,13 @@ def work(tcrd, res, ds_coord, wsis, z, args):
         pred_inst,
         wsis,
         tcrd,
-        args["out_img_shape"][-2:],
+        params["out_img_shape"][-2:],
         max_hole_size,
         130,
-        args["ds"],
-        args["pannuke"],
-        args["ts"],
-        args["ov"],
+        params["ds"],
+        params["pannuke"],
+        params["ts"],
+        params["ov"],
     )
     pred_ct = make_ct(out_cls, pred_inst)
     del out_cls
@@ -423,17 +422,10 @@ def faster_instance_seg(out_img, out_cls, best_fg_thresh_cl, best_seed_thresh_cl
         fg = np.zeros_like(ws_surface, dtype="bool")
         seeds = np.zeros_like(ws_surface, dtype="bool")
 
-        for cl in range(len(best_fg_thresh_cl)):
-            try:
-                mask = sem[cl]
-                fg[mask] |= (1.0 - bg_pred[mask]) > best_fg_thresh_cl[cl]
-                seeds[mask] |= fg_pred[mask] > best_seed_thresh_cl[cl]
-            except IndexError:
-                print(bb)
-                print(bg_pred.shape)
-                print(mask.shape)
-                print(np.sum(mask))
-                raise ValueError
+        for cl, fg in enumerate(best_fg_thresh_cl):
+            mask = sem[cl]
+            fg[mask] |= (1.0 - bg_pred[mask]) > fg
+            seeds[mask] |= fg_pred[mask] > best_seed_thresh_cl[cl]
 
         del fg_pred, bg_pred, sem, mask
         gc.collect()
@@ -443,10 +435,7 @@ def faster_instance_seg(out_img, out_cls, best_fg_thresh_cl, best_seed_thresh_cl
         bb_ws = watershed(ws_surface, markers, mask=fg, connectivity=2)
         del ws_surface, markers, fg
         gc.collect()
-        # ws_fg = bb_ws > 0
-        # roi_bg = bb_ws == 0
         bb_ws[bb_ws != 0] += max_inst
-        # bb_ws[roi_bg] = 0
         labelling[bb] = bb_ws
         max_inst = np.max(bb_ws)
         del bb_ws
@@ -454,63 +443,43 @@ def faster_instance_seg(out_img, out_cls, best_fg_thresh_cl, best_seed_thresh_cl
     return labelling, skip
 
 
-def get_wsi(
-    wsi_path, tg_shape, read_ds=32, pannuke=False, tile_size=256, padding_factor=0.96875
-):
+def get_wsi(wsi_path, read_ds=32, pannuke=False, tile_size=256, padding_factor=0.96875):
     # TODO change this so it works with non-rescaled version as well
     ccrop = int(tile_size * padding_factor)
     level = 40 if pannuke else 20
     crop_adj = int((tile_size - ccrop) // 2)
 
-    if wsi_path.endswith(".ome.tif"):
-        tif_raw = tif.imread(wsi_path, aszarr=True)
-        raw_ = zarr.open(tif_raw, mode="r")
-        for x, a in raw_.arrays():
-            if np.isclose(
-                np.array(a.shape)[:2],
-                (np.array(tg_shape) / read_ds),
-                atol=1,
-            ).all():
-                raw = raw_[x]
-                raw = raw[crop_adj:-crop_adj, crop_adj:-crop_adj, :3]
-    else:
-        ws_ds = WholeSlideDataset(
-            wsi_path,
-            crop_sizes_px=[tile_size],
-            crop_magnifications=[level],
-            padding_factor=padding_factor,
-            ratio_object_thresh=0.0001,
+    ws_ds = WholeSlideDataset(
+        wsi_path,
+        crop_sizes_px=[tile_size],
+        crop_magnifications=[level],
+        padding_factor=padding_factor,
+        ratio_object_thresh=0.0001,
+    )
+    sl = openslide.open_slide(wsi_path)
+    sl_info = get_openslide_info(sl)
+    target_level = np.argwhere(np.isclose(sl_info["level_downsamples"], read_ds)).item()
+    ds_coord = ws_ds.crop_metadatas[0]
+    ds_coord[:, 2:4] -= np.array([sl_info["bounds_x"], sl_info["bounds_y"]])
+
+    ds_coord[:, 2:4] += tile_size - ccrop
+    w, h = np.max(ds_coord[:, 2:4], axis=0)
+
+    raw = np.asarray(
+        sl.read_region(
+            (
+                sl_info["bounds_x"] + crop_adj,
+                sl_info["bounds_y"] + crop_adj,
+            ),
+            target_level,
+            (
+                int((w + ccrop) // (sl_info["level_downsamples"][target_level])),
+                int((h + ccrop) // (sl_info["level_downsamples"][target_level])),
+            ),
         )
-        sl = openslide.open_slide(wsi_path)
-        sl_info = get_openslide_info(sl)
-        target_level = np.argwhere(
-            np.isclose(sl_info["level_downsamples"], read_ds)
-        ).item()
-        ds_coord = ws_ds.crop_metadatas[0]
-        ds_coord[:, 2:4] -= np.array([sl_info["bounds_x"], sl_info["bounds_y"]])
-
-        ds_coord[:, 2:4] += tile_size - ccrop
-        w, h = np.max(ds_coord[:, 2:4], axis=0)
-
-        raw = np.asarray(
-            sl.read_region(
-                (
-                    sl_info["bounds_x"] + ((tile_size - ccrop) // 2),
-                    sl_info["bounds_y"] + ((tile_size - ccrop) // 2),
-                ),
-                target_level,
-                (
-                    int((w + ccrop) // (sl_info["level_downsamples"][target_level])),
-                    int((h + ccrop) // (sl_info["level_downsamples"][target_level])),
-                ),
-            )
-        )
-        try:
-            raw = raw[..., :3]
-        except:
-            pass
-
-        sl.close()
+    )
+    raw = raw[..., :3]
+    sl.close()
     return raw
 
 
@@ -572,7 +541,6 @@ def post_proc_inst(
     else:
         raw_ = get_wsi(
             wsi_path,
-            pshp,
             read_ds=32,
             pannuke=pannuke,
             tile_size=tile_size,
@@ -663,11 +631,12 @@ def remove_small_holescv2(img, sz):
     return im_result
 
 
-def get_pp_params(experiments, cp_root, mit_eval=False, eval_metric="mpq"):
+def get_pp_params(params, mit_eval=False):
+    eval_metric = params["m"]
     fg_threshs = []
     seed_threshs = []
-    for exp in experiments:
-        mod_path = os.path.join(cp_root, exp)
+    for exp in params["data_dirs"]:
+        mod_path = os.path.join(params["root"], exp)
         if "pannuke" in exp:
             with open(
                 os.path.join(mod_path, "pannuke_test_param_dict.json"), "r"
@@ -691,69 +660,21 @@ def get_pp_params(experiments, cp_root, mit_eval=False, eval_metric="mpq"):
                 dt = json.load(js)
                 fg_threshs.append(dt[f"best_fg_{eval_metric}"])
                 seed_threshs.append(dt[f"best_seed_{eval_metric}"])
-    best_fg_thresh_cl = np.mean(fg_threshs, axis=0)
-    best_seed_thresh_cl = np.mean(seed_threshs, axis=0)
-    print(best_fg_thresh_cl, best_seed_thresh_cl)
-    return best_fg_thresh_cl, best_seed_thresh_cl
+    params["best_fg_thresh_cl"] = np.mean(fg_threshs, axis=0)
+    params["best_seed_thresh_cl"] = np.mean(seed_threshs, axis=0)
+    print(params["best_fg_thresh_cl"], params["best_seed_thresh_cl"])
+
+    return params
 
 
-def get_seed_fg(
-    root: str,
-    experiments: List[str],
-    default: bool = False,
-    eval_metric: str = "mpq",
-):
-    """
-    root: str
+def get_shapes(params, nclasses):
+    padding_factor = params["ov"]
+    tile_size = params["ts"]
+    params["npy"] = False
 
-
-    """
-    if not default:
-        best_fg_thresh_cl, best_seed_thresh_cl = get_pp_params(
-            experiments, root, True, eval_metric
-        )
-    else:
-        best_seed_thresh_cl = [
-            0.2,
-            0.5,
-            0.4,
-            0.5,
-            0.5,
-            0.4,
-            0.2,
-        ]
-        best_fg_thresh_cl = [
-            0.3,
-            0.6,
-            0.6,
-            0.7,
-            0.6,
-            0.5,
-            0.5,
-        ]
-    return best_fg_thresh_cl, best_seed_thresh_cl
-
-
-def get_shapes(
-    wsi_path, nclasses, pannuke=False, padding_factor=0.96875, tile_size=256
-):
-    npy = False
-    if wsi_path.endswith(".ome.tif"):
-        level = 0 if pannuke else 1
-        dataset = OmeTiffDataset(
-            wsi_path, tile_size, level, padding_factor=padding_factor
-        )
-        ds_coord = dataset.grid.astype(int)
-        shp = dataset.img[dataset.level].shape
-        ccrop = int(dataset.padding_factor * dataset.crop_size_px)
-        coord_adj = (dataset.crop_size_px - ccrop) // 2
-        ds_coord += coord_adj
-        out_img_shape = (2, shp[0], shp[1])
-        out_cls_shape = (nclasses, shp[0], shp[1])
-
-    elif wsi_path.endswith(".npy"):
+    if params["p"].endswith(".npy"):
         dataset = NpyDataset(
-            wsi_path,
+            params["p"],
             tile_size,
             padding_factor=padding_factor,
             ratio_object_thresh=0.3,
@@ -767,20 +688,21 @@ def get_shapes(
         ds_coord[:, 1:] += coord_adj
         out_img_shape = (shp[0], 2, shp[1], shp[2])
         out_cls_shape = (shp[0], nclasses, shp[1], shp[2])
-        npy = True
+        params["npy"] = True
     else:
-        level = 40 if pannuke else 20
+        level = 40 if params["pannuke"] else 20
         dataset = WholeSlideDataset(
-            wsi_path,
+            params["p"],
             crop_sizes_px=[tile_size],
             crop_magnifications=[level],
             padding_factor=padding_factor,
             ratio_object_thresh=0.0001,
         )
+
         print("getting coords:")
         ds_coord = dataset.crop_metadatas[0][:, 2:4].copy()
         try:
-            with openslide.open_slide(wsi_path) as sl:
+            with openslide.open_slide(params["p"]) as sl:
                 bounds_x = int(sl.properties["openslide.bounds-x"])  # 158208
                 bounds_y = int(sl.properties["openslide.bounds-y"])  # 28672
         except KeyError:
@@ -791,7 +713,7 @@ def get_shapes(
 
         orig_ts = 256
         ccrop = int(orig_ts * padding_factor)
-        if not pannuke:
+        if (not params["pannuke"]) & (abs(dataset.mpp - 0.2425) < 0.05):
             ds_coord /= 2
 
         ds_coord += (orig_ts - ccrop) // 2
@@ -799,4 +721,39 @@ def get_shapes(
         h, w = np.max(ds_coord, axis=0)
         out_img_shape = (2, int(h + ccrop), int(w + ccrop))
         out_cls_shape = (nclasses, int(h + ccrop), int(w + ccrop))
-    return out_img_shape, out_cls_shape, ds_coord, ccrop, npy
+
+    params["out_img_shape"] = out_img_shape
+    params["out_cls_shape"] = out_cls_shape
+    params["ccrop"] = ccrop
+
+    return params, ds_coord
+
+
+def get_openslide_info(sl):
+    level_count = int(sl.properties["openslide.level-count"])
+    mpp_x = float(sl.properties["openslide.mpp-x"])
+    mpp_y = float(sl.properties["openslide.mpp-y"])
+    try:
+        bounds_x, bounds_y = (
+            int(sl.properties["openslide.bounds-x"]),
+            int(sl.properties["openslide.bounds-y"]),
+        )
+    except KeyError:
+        bounds_x = 0
+        bounds_y = 0
+    level_downsamples = [
+        int(sl.properties[f"openslide.level[{i}].downsample"])
+        for i in range(level_count)
+    ]
+    level_mpp_x = [mpp_x / i for i in level_downsamples]
+    level_mpp_y = [mpp_y / i for i in level_downsamples]
+    return {
+        "level_count": level_count,
+        "mpp_x": mpp_x,
+        "mpp_y": mpp_y,
+        "bounds_x": bounds_x,
+        "bounds_y": bounds_y,
+        "level_downsamples": level_downsamples,
+        "level_mpp_x": level_mpp_x,
+        "level_mpp_y": level_mpp_y,
+    }

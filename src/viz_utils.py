@@ -4,28 +4,7 @@ import geojson
 from multiprocessing import Pool
 from functools import partial
 from tqdm.auto import tqdm
-
-
-#### HARD CODED CLASSES AND COLORS! ####
-colors_ = [
-    [0, 255, 0],  # neu
-    [255, 0, 0],  # epi
-    [0, 0, 255],  # lym
-    [0, 128, 0],  # pla
-    [0, 255, 255],  # eos
-    [255, 179, 102],  # con
-    [255, 0, 255],  # mitosis
-]
-
-pred_keys = {
-    "neutrophil": 1,
-    "epithelial-cell": 2,
-    "lymphocyte": 3,
-    "plasma-cell": 4,
-    "eosinophil": 5,
-    "connective-tissue-cell": 6,
-    "mitosis": 7,
-}
+from src.constants import CLASS_LABELS_LIZARD, CLASS_LABELS_PANNUKE, COLORS_LIZARD
 
 
 def create_geojson(polygons, classids, lookup, result_dir):
@@ -42,7 +21,7 @@ def create_geojson(polygons, classids, lookup, result_dir):
                 "Type": "Polygon",
                 "classification": {
                     "name": lookup[cid],
-                    "color": colors_[cid - 1],
+                    "color": COLORS_LIZARD[cid - 1],
                 },
             },
         )
@@ -53,13 +32,14 @@ def create_geojson(polygons, classids, lookup, result_dir):
         f.write(geojson_str)
 
 
-def create_tsvs(pcls_out, result_dir):
+def create_tsvs(pcls_out, params):
+    pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
     coord_array = np.array([[i[0], *i[1]] for i in pcls_out.values()])
     classes = list(pred_keys.keys())
     colors = ["-256", "-65536"]
     i = 0
     for pt in classes:
-        file = result_dir + "/pred_" + pt + ".tsv"
+        file = params["output_dir"] + "/pred_" + pt + ".tsv"
         textfile = open(file, "w")
 
         textfile.write("x" + "\t" + "y" + "\t" + "name" + "\t" + "color" + "\n")
@@ -96,15 +76,16 @@ def cont(x, downsample=0):
     )
 
 
-def create_polygon_output(pinst, pcls_out, result_dir, downsample=0):
+def create_polygon_output(pinst, pcls_out, result_dir, params):
     # polygon output is slow and unwieldy, TODO
+    pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
     props = [(p.label, p.image, p.bbox) for p in tqdm(regionprops(np.asarray(pinst)))]
     class_labels = [pcls_out[str(p[0])] for p in props]
     with Pool(4) as pool:
         res_poly = [
             y[1]
             for y in sorted(
-                pool.map(partial(cont, downsample=downsample), props),
+                pool.map(partial(cont, downsample=params["ds"]), props),
                 key=lambda x: x[0],
             )
         ]

@@ -9,7 +9,24 @@ rgb_from_hed = np.array(
 hed_from_rgb = np.linalg.inv(rgb_from_hed)
 
 
-def torch_rgb2hed(img, hed_t, e):
+def torch_rgb2hed(img: torch.Tensor, hed_t: torch.Tensor, e: float):
+    """
+    convert rgb torch tensor to hed torch tensor (adopted from skimage)
+
+    Parameters
+    ----------
+    img : torch.Tensor
+        rgb image tensor (B, C, H, W) or (C, H, W)
+    hed_t : torch.Tensor
+        hed transform tensor (3, 3)
+    e : float
+        epsilon
+
+    Returns
+    -------
+    torch.Tensor
+        hed image tensor (B, C, H, W) or (C, H, W)
+    """
     img = img.movedim(-3, -1)
 
     img = torch.clamp(img, min=e)
@@ -18,7 +35,24 @@ def torch_rgb2hed(img, hed_t, e):
     return img.movedim(-1, -3)
 
 
-def torch_hed2rgb(img, rgb_t, e):
+def torch_hed2rgb(img: torch.Tensor, rgb_t: torch.Tensor, e: float):
+    """
+    convert rgb torch tensor to hed torch tensor (adopted from skimage)
+
+    Parameters
+    ----------
+    img : torch.Tensor
+        hed image tensor (B, C, H, W) or (C, H, W)
+    hed_t : torch.Tensor
+        hed inverse transform tensor (3, 3)
+    e : float
+        epsilon
+
+    Returns
+    -------
+    torch.Tensor
+        RGB image tensor (B, C, H, W) or (C, H, W)
+    """
     e = -torch.log(e)
     img = img.movedim(-3, -1)
     img = torch.matmul(-(img * e), rgb_t)
@@ -28,6 +62,10 @@ def torch_hed2rgb(img, rgb_t, e):
 
 
 class Hed2Rgb(torch.nn.Module):
+    """
+    Pytorch module to convert hed image tensors to rgb
+    """
+
     def __init__(self, rank):
         super().__init__()
         self.e = torch.tensor(1e-6).to(rank)
@@ -39,6 +77,10 @@ class Hed2Rgb(torch.nn.Module):
 
 
 class Rgb2Hed(torch.nn.Module):
+    """
+    Pytorch module to convert rgb image tensors to hed
+    """
+
     def __init__(self, rank):
         super().__init__()
         self.e = torch.tensor(1e-6).to(rank)
@@ -49,8 +91,19 @@ class Rgb2Hed(torch.nn.Module):
         return torch_rgb2hed(img, self.hed_t, self.e)
 
 
-class HED_normalize_torch(torch.nn.Module):
-    def __init__(self, sigma, bias, rank=0, *args, **kwargs) -> None:
+class HedNormalizeTorch(torch.nn.Module):
+    """
+    Pytorch augmentation module to apply HED stain augmentation
+
+    Parameters
+    ----------
+    sigma : float
+        sigma for linear scaling of HED channels
+    bias : float
+        bias for additive scaling of HED channels
+    """
+
+    def __init__(self, sigma, bias, rank, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.sigma = sigma
         self.bias = bias
@@ -78,6 +131,10 @@ class HED_normalize_torch(torch.nn.Module):
 
 
 class GaussianNoise(torch.nn.Module):
+    """
+    Pytorch augmentation module to apply gaussian noise
+    """
+
     def __init__(self, sigma, rank):
         super().__init__()
         self.sigma = sigma
@@ -89,19 +146,40 @@ class GaussianNoise(torch.nn.Module):
 
 
 def color_augmentations(train, sigma=0.05, bias=0.03, s=0.2, rank=0):
+    """
+    Color augmentation function (in theory can set to train to have more variance
+    with high test time augmentations)
+
+    Parameters
+    ----------
+    train : bool
+        during training, the model uses more augmentation than during inference,
+        set to true for more variance in colors
+    sigma: float
+        parameter for hed augmentation
+    bias: float
+        parameter for hed augmentation
+    s: float
+        parameter for color jitter
+    rank: int or torch.device or str
+        device to use for augmentation
+
+    Returns
+    -------
+    torch.nn.Sequential
+        sequential augmentation module
+    """
     if train:
         color_jitter = ColorJitter(
             0.8 * s, 0.0 * s, 0.8 * s, 0.2 * s
         )  # brightness, contrast, saturation, hue
 
         data_transforms = torch.nn.Sequential(
-            RandomApply([HED_normalize_torch(sigma, bias, rank=rank)], p=0.75),
+            RandomApply([HedNormalizeTorch(sigma, bias, rank=rank)], p=0.75),
             RandomApply([color_jitter], p=0.3),
             RandomApply([GaussianNoise(0.02, rank)], p=0.3),
             RandomApply([GaussianBlur(kernel_size=15, sigma=(0.1, 0.1))], p=0.3),
         )
     else:
-        data_transforms = torch.nn.Sequential(
-            HED_normalize_torch(sigma, bias, rank=rank)
-        )
+        data_transforms = torch.nn.Sequential(HedNormalizeTorch(sigma, bias, rank=rank))
     return data_transforms
