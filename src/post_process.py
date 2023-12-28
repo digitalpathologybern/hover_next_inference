@@ -1,6 +1,6 @@
 from src.post_process_utils import (
     work,
-    writer_thread,
+    write,
     get_pp_params,
     get_shapes,
     get_tile_coords,
@@ -10,11 +10,8 @@ from src.data_utils import NpyDataset
 from typing import List, Tuple
 import zarr
 from numcodecs import Blosc
-import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 import concurrent.futures
-
-import numpy as np
 import json
 import os
 from typing import Union
@@ -68,28 +65,26 @@ def post_process_main(
         wsis = params["p"]
         pinst_out = zarr.zeros(
             shape=(
-                params["out_img_shape"][-1] // (2 ** params["ds"]),
-                params["out_img_shape"][-2] // (2 ** params["ds"]),
+                params["out_img_shape"][-1],
+                params["out_img_shape"][-2],
             ),
             dtype="i4",
             compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.SHUFFLE),
         )
 
-    res = multiprocessing.JoinableQueue()
+    # res = multiprocessing.JoinableQueue()
     # numcodecs.blosc.use_threads = True
     executor = ProcessPoolExecutor(max_workers=params["pp_workers"])
-    writer = executor.submit(writer_thread, pinst_out, res, params)
+    # writer = executor.submit(writer_thread, pinst_out, res, params)
     tile_processors = [
-        executor.submit(work, tcrd, res, ds_coord, wsis, z, params)
-        for tcrd in tile_crds
+        executor.submit(work, tcrd, ds_coord, wsis, z, params) for tcrd in tile_crds
     ]
-    for _ in concurrent.futures.as_completed(tile_processors):
-        pass
-    res.join()
-    res.put((-1, None, None, None, True))
-    pinst_out, pcls_out = writer.result()
-    res.join()
-    res.close()
+    pcls_out = {}
+    running_max = 0
+    for future in concurrent.futures.as_completed(tile_processors):
+        pinst_out, pcls_out, running_max = write(
+            pinst_out, pcls_out, running_max, future.result(), params
+        )
     executor.shutdown(wait=False)
 
     print("saving final output")
@@ -104,9 +99,8 @@ def post_process_main(
     if not params["npy"]:
         print("saving qupath coordinates...")
         create_tsvs(pcls_out, params)
+        # TODO this is still broken
         if params["save_polygon"]:
-            create_polygon_output(
-                pinst_out, pcls_out, params["output_dir"], params["ds"]
-            )
+            create_polygon_output(pinst_out, pcls_out, params["output_dir"], params)
 
     return z_pp

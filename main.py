@@ -1,14 +1,14 @@
+import os
+import argparse
+import sys
+from timeit import default_timer as timer
+from datetime import timedelta
 import torch
 from src.inference import inference_main
 from src.post_process import post_process_main
 
 torch.backends.cudnn.benchmark = True
 print(torch.cuda.device_count(), " cuda devices")
-import os
-import argparse
-import sys
-from timeit import default_timer as timer
-from datetime import timedelta
 
 
 def main(params: dict):
@@ -24,7 +24,6 @@ def main(params: dict):
 
     params["p"] = params["p"].rstrip()
     params["root"] = os.path.dirname(__file__)
-    params["o"] = os.path.join(params["root"], params["o"])
     params["data_dirs"] = [
         os.path.join(params["root"], c) for c in params["cp"].split(",")
     ]
@@ -32,6 +31,17 @@ def main(params: dict):
     print("input path: ", params["p"])
     print("saving results to:", params["o"])
     print("loading model from:", params["data_dirs"])
+
+    if sum(["pannuke" in x for x in params["data_dirs"]]) > 0:
+        print("running pannuke inference at .25mpp")
+        params["pannuke"] = True
+    else:
+        params["pannuke"] = False
+    print(
+        "processing input using",
+        "pannuke" if params["pannuke"] else "lizard",
+        "trained model",
+    )
 
     start_time = timer()
     # Run per tile inference and store results
@@ -44,15 +54,17 @@ def main(params: dict):
     # for faster processing, only run inference on a GPU node and
     # do post-processing on basic CPU nodes
     if params["slurm"]:
-        print("submitting slurm job for postprocessing")
-        if z is not None:
+        try:
             z[0].store.close()
             z[1].store.close()
+        except TypeError:
+            # if z is None, z cannot be indexed -> throws a TypeError
+            pass
+        print("submitting slurm job for postprocessing")
         sys.exit(0)
     # Stitch tiles together and postprocess to get instance segmentation
     if not os.path.exists(os.path.join(params["output_dir"], "pinst_pp.zip")):
         print("running post-processing")
-        print("downsample: ", params["ds"])
         print("save polygons", params["save_polygon"])
 
         z_pp = post_process_main(
@@ -85,16 +97,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", type=str, default=None, help="path to wsi", required=True)
     parser.add_argument(
-        "-o", type=str, default=None, help="relative output dir", required=True
-    )
-    parser.add_argument(
-        "-ca", type=str, default=None, help="path to CA segmentation model outputs"
-    )
-    parser.add_argument(
-        "-ds",
-        type=int,
-        default=0,
-        help="downsample results, speed up depends on number of cores available for pp. NPY is never downsampled",
+        "-o", type=str, default=None, help="output directory", required=True
     )
     parser.add_argument(
         "--cp",
@@ -110,8 +113,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "-tta",
         type=int,
-        default=8,
-        help="test time augmentations, number of views (8= results from 8 different augmentations are averaged for each sample)",
+        default=4,
+        help="test time augmentations, number of views (4= results from 4 different augmentations are averaged for each sample)",
     )
     parser.add_argument(
         "--save_polygon",
@@ -153,5 +156,5 @@ if __name__ == "__main__":
         action="store_true",
         help="keep raw predictions (can be large files for particularly for pannuke)",
     )
-    params = vars(parser.parse_params())
+    params = vars(parser.parse_args())
     main(params)

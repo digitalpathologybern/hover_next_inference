@@ -1,10 +1,18 @@
 import numpy as np
 from skimage.measure import find_contours, regionprops
 import geojson
+import openslide
 from multiprocessing import Pool
 from functools import partial
 from tqdm.auto import tqdm
-from src.constants import CLASS_LABELS_LIZARD, CLASS_LABELS_PANNUKE, COLORS_LIZARD
+from src.post_process_utils import get_openslide_info
+from src.constants import (
+    CLASS_LABELS_LIZARD,
+    CLASS_LABELS_PANNUKE,
+    COLORS_LIZARD,
+    CONIC_MPP,
+    PANNUKE_MPP,
+)
 
 
 def create_geojson(polygons, classids, lookup, result_dir):
@@ -33,7 +41,17 @@ def create_geojson(polygons, classids, lookup, result_dir):
 
 
 def create_tsvs(pcls_out, params):
+    sl = openslide.open_slide(params["p"])
+    sl_info = get_openslide_info(sl)
+    sl.close()
+    target_mpp = PANNUKE_MPP if params["pannuke"] else CONIC_MPP
+    target_level = np.argwhere(
+        np.isclose(sl_info["level_mpp_x"], target_mpp, atol=0.1)
+    ).item()
+    downsample = sl_info["level_downsamples"][target_level]
+
     pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
+
     coord_array = np.array([[i[0], *i[1]] for i in pcls_out.values()])
     classes = list(pred_keys.keys())
     colors = ["-256", "-65536"]
@@ -45,9 +63,9 @@ def create_tsvs(pcls_out, params):
         textfile.write("x" + "\t" + "y" + "\t" + "name" + "\t" + "color" + "\n")
         textfile.writelines(
             [
-                str(element[2])
+                str(element[2] * downsample)
                 + "\t"
-                + str(element[1])
+                + str(element[1] * downsample)
                 + "\t"
                 + pt
                 + "\t"
@@ -61,7 +79,7 @@ def create_tsvs(pcls_out, params):
         i += 1
 
 
-def cont(x, downsample=0):
+def cont(x):
     lab, im, bb = x
     return (
         lab,
@@ -85,7 +103,7 @@ def create_polygon_output(pinst, pcls_out, result_dir, params):
         res_poly = [
             y[1]
             for y in sorted(
-                pool.map(partial(cont, downsample=params["ds"]), props),
+                pool.map(partial(cont), props),
                 key=lambda x: x[0],
             )
         ]

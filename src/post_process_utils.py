@@ -6,7 +6,6 @@ import json
 import os
 import time
 import openslide
-
 from skimage.segmentation import watershed
 from scipy.ndimage import find_objects
 from numcodecs import Blosc
@@ -45,85 +44,76 @@ def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
     return pcls_out | pcls_new
 
 
-def writer_thread(pinst_out, res, params):
-    running_max = 0
-    pcls_out = {}
-    while True:
-        pinst_, pcls_, max_, t_, skip = res.get()
-        if pinst_ == -1:
-            # POISONPILL
-            res.task_done()
-            print("writer done...")
-            break
-        if skip:
-            print("empty, skipping", t_)
-            res.task_done()
+def write(pinst_out, pcls_out, running_max, res, params):
+    pinst_, pcls_, max_, t_, skip = res
+
+    if skip:
+        print("empty, skipping", t_)
+
+    else:
+        if params["npy"]:
+            pinst_[pinst_ != 0] += running_max
+            pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
+            running_max += max_
+            pcls_out |= pcls_
+            pinst_out[t_[-1]] = np.asarray(pinst_, dtype=np.int32)
+
         else:
-            if params["npy"]:
-                pinst_[pinst_ != 0] += running_max
-                pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
-                running_max += max_
-                pcls_out |= pcls_
-                pinst_out[t_[-1]] = np.asarray(pinst_, dtype=np.int32)
-                res.task_done()
-            else:
-                pinst_ = np.asarray(pinst_, dtype=np.int32)
-                start_time = time.process_time()
-                ov_regions, local_regions, which = get_overlap_regions(
-                    t_, params["pp_overlap"], pinst_out.shape
+            pinst_ = np.asarray(pinst_, dtype=np.int32)
+            start_time = time.process_time()
+            ov_regions, local_regions, which = get_overlap_regions(
+                t_, params["pp_overlap"], pinst_out.shape
+            )
+            pinst_[pinst_ != 0] += running_max
+            pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
+            running_max += max_
+            initial_ids = np.unique(pinst_[pinst_ != 0])
+            old_ids = []
+
+            for reg, loc, whi in zip(ov_regions, local_regions, which):
+                if reg is None:
+                    continue
+
+                written = np.array(
+                    pinst_out[reg[2] : reg[3], reg[0] : reg[1]], dtype=np.int32
                 )
-                pinst_[pinst_ != 0] += running_max
-                pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
-                running_max += max_
-                initial_ids = np.unique(pinst_[pinst_ != 0])
-                old_ids = []
+                old_ids.append(np.unique(written[written != 0]))
 
-                for reg, loc, whi in zip(ov_regions, local_regions, which):
-                    if reg is None:
+                small, large = get_subregions(whi, written.shape)
+                subregion = written[
+                    small[0] : small[1], small[2] : small[3]
+                ]  # 1/4 of the region
+                larger_subregion = written[
+                    large[0] : large[1], large[2] : large[3]
+                ]  # 1/2 of the region
+                keep = np.unique(subregion[subregion != 0])
+                if len(keep) == 0:
+                    continue
+
+                keep_objects = find_objects(
+                    larger_subregion, max_label=max(keep)
+                )  # [keep-1]
+                pinst_reg = pinst_[loc[2] : loc[3], loc[0] : loc[1]][
+                    large[0] : large[1], large[2] : large[3]
+                ]
+
+                for id_ in keep:
+                    obj = keep_objects[id_ - 1]
+                    if obj is None:
                         continue
+                    written_mask = larger_subregion[obj] == id_
+                    pinst_reg[obj][written_mask] = id_
 
-                    written = np.array(
-                        pinst_out[reg[2] : reg[3], reg[0] : reg[1]], dtype=np.int32
-                    )
-                    old_ids.append(np.unique(written[written != 0]))
+            old_ids = np.concatenate(old_ids)
+            pcls_out = update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids)
+            pinst_out[t_[2] : t_[3], t_[0] : t_[1]] = pinst_
+            print("write crop", time.process_time() - start_time)
+            # res.task_done()
 
-                    small, large = get_subregions(whi, written.shape)
-                    subregion = written[
-                        small[0] : small[1], small[2] : small[3]
-                    ]  # 1/4 of the region
-                    larger_subregion = written[
-                        large[0] : large[1], large[2] : large[3]
-                    ]  # 1/2 of the region
-                    keep = np.unique(subregion[subregion != 0])
-                    if len(keep) == 0:
-                        continue
-
-                    keep_objects = find_objects(
-                        larger_subregion, max_label=max(keep)
-                    )  # [keep-1]
-                    pinst_reg = pinst_[loc[2] : loc[3], loc[0] : loc[1]][
-                        large[0] : large[1], large[2] : large[3]
-                    ]
-
-                    for id_ in keep:
-                        obj = keep_objects[id_ - 1]
-                        if obj is None:
-                            continue
-                        written_mask = larger_subregion[obj] == id_
-                        pinst_reg[obj][written_mask] = id_
-
-                old_ids = np.concatenate(old_ids)
-                pcls_out = update_dicts(
-                    pinst_, pcls_, pcls_out, t_, old_ids, initial_ids
-                )
-                pinst_out[t_[2] : t_[3], t_[0] : t_[1]] = pinst_
-                print("write crop", time.process_time() - start_time)
-                res.task_done()
-
-    return pinst_out, pcls_out
+    return pinst_out, pcls_out, running_max
 
 
-def work(tcrd, res, ds_coord, wsis, z, params):
+def work(tcrd, ds_coord, wsis, z, params):
     out_img = gen_tile_map(
         tcrd,
         ds_coord,
@@ -131,7 +121,6 @@ def work(tcrd, res, ds_coord, wsis, z, params):
         model_out_p=params["model_out_p"],
         which="_inst",
         dim=params["out_img_shape"][-3],
-        downsample=params["ds"],
         z=z,
         npy=params["npy"],
     )
@@ -142,19 +131,11 @@ def work(tcrd, res, ds_coord, wsis, z, params):
         model_out_p=params["model_out_p"],
         which="_cls",
         dim=params["out_cls_shape"][-3],
-        downsample=params["ds"],
         z=z,
         npy=params["npy"],
     )
-    if params["ds"] > 0:
-        tcrd = [int(t // (2 ** params["ds"])) for t in tcrd]
-        tcrd[1] = tcrd[0] + out_cls.shape[-1]
-        tcrd[3] = tcrd[2] + out_cls.shape[-2]
     best_min_threshs = MIN_THRESHS_PANNUKE if params["pannuke"] else MIN_THRESHS_LIZARD
     best_max_threshs = MAX_THRESHS_PANNUKE if params["pannuke"] else MAX_THRESHS_LIZARD
-
-    best_min_threshs = np.array(best_min_threshs) // (4 ** (params["ds"]))
-    best_max_threshs = np.array(best_max_threshs) // (4 ** (params["ds"]))
 
     # using apply_func to apply along axis for npy stacks
     pred_inst, skip = faster_instance_seg(
@@ -162,13 +143,13 @@ def work(tcrd, res, ds_coord, wsis, z, params):
     )
     del out_img
     gc.collect()
-    max_hole_size = MAX_HOLE_SIZE // (4 ** params["ds"])
+    max_hole_size = MAX_HOLE_SIZE if params["pannuke"] else (MAX_HOLE_SIZE // 4)
     if skip:
         pred_inst = zarr.array(
             pred_inst, compressor=Blosc(cname="zstd", clevel=3, shuffle=Blosc.SHUFFLE)
         )
-        res.put((pred_inst, {}, 0, tcrd, skip))
-        return
+
+        return (pred_inst, {}, 0, tcrd, skip)
     pred_inst = post_proc_inst(
         pred_inst,
         wsis,
@@ -176,7 +157,6 @@ def work(tcrd, res, ds_coord, wsis, z, params):
         params["out_img_shape"][-2:],
         max_hole_size,
         130,
-        params["ds"],
         params["pannuke"],
         params["ts"],
         params["ov"],
@@ -192,8 +172,7 @@ def work(tcrd, res, ds_coord, wsis, z, params):
         pred_inst.astype(np.int32),
         compressor=Blosc(cname="zstd", clevel=3, shuffle=Blosc.SHUFFLE),
     )
-    res.put((pred_inst, pred_ct, max_inst, tcrd, skip))
-    return
+    return (pred_inst, pred_ct, max_inst, tcrd, skip)
 
 
 def get_overlap_regions(tcrd, pad_size, out_img_shape):
@@ -286,24 +265,6 @@ def get_tile_coords(shape, splits, pad_size, npy):
     return tile_crds
 
 
-def resize_map(x, downsample, lin=True):
-    if downsample == 0:
-        return x
-    x = np.rollaxis(x, 0, 3)
-    if lin:
-        method = cv2.INTER_LINEAR
-        x = x.astype(np.float32)
-    else:
-        method = cv2.INTER_NEAREST
-        x = x.astype(np.uint8)
-    # method = cv2.INTER_LINEAR if lin else cv2.INTER_NEAREST
-    x = cv2.resize(
-        x, (x.shape[1] // (2**downsample), x.shape[0] // (2**downsample)), method
-    )
-    x = np.rollaxis(x, 2, 0)
-    return x.astype(np.float16) if lin else x.astype(bool)
-
-
 def proc_tile(t, ccrop, which="_cls"):
     t = center_crop(t, ccrop, ccrop)
     if which == "_cls":
@@ -325,7 +286,6 @@ def gen_tile_map(
     model_out_p="",
     which="_cls",
     dim=5,
-    downsample=0,
     z=None,
     npy=False,
 ):
@@ -390,8 +350,6 @@ def gen_tile_map(
             print(ccrop)
             print(tile.shape)
             raise ValueError
-    if (not npy) & downsample > 0:
-        zero_map = resize_map(zero_map, downsample, lin=which != "_cls")
     return zero_map
 
 
@@ -422,9 +380,9 @@ def faster_instance_seg(out_img, out_cls, best_fg_thresh_cl, best_seed_thresh_cl
         fg = np.zeros_like(ws_surface, dtype="bool")
         seeds = np.zeros_like(ws_surface, dtype="bool")
 
-        for cl, fg in enumerate(best_fg_thresh_cl):
+        for cl, fg_t in enumerate(best_fg_thresh_cl):
             mask = sem[cl]
-            fg[mask] |= (1.0 - bg_pred[mask]) > fg
+            fg[mask] |= (1.0 - bg_pred[mask]) > fg_t
             seeds[mask] |= fg_pred[mask] > best_seed_thresh_cl[cl]
 
         del fg_pred, bg_pred, sem, mask
@@ -490,17 +448,15 @@ def post_proc_inst(
     full_shape,
     hole_size=50,
     inten_max=130,
-    downsample=0,
     pannuke=False,
     tile_size=256,
     padding_factor=0.96875,
 ):
-    hole_size = hole_size // (4 ** (downsample))
     pshp = pred_inst.shape
     pred_inst = np.asarray(pred_inst)
     init = find_objects(pred_inst)
     init_large = []
-    adj = 8 // (2 ** (downsample))
+    adj = 8
     for i, sl in enumerate(init):
         if sl:
             slx1 = sl[0].start - adj if (sl[0].start - adj) > 0 else 0
@@ -532,39 +488,40 @@ def post_proc_inst(
             for new_lab in range(1, nr_objects):
                 out_[sl] += (relabeled == new_lab) * i_
                 i_ += 1
-
-    after_cc = find_objects(out_)
-    out = np.zeros(pshp, dtype=np.int32)
-    i_ = 1
-    if type(wsi_path).__module__ == np.__name__:
-        raw_ = wsi_path[coord[-1]]
-    else:
-        raw_ = get_wsi(
-            wsi_path,
-            read_ds=32,
-            pannuke=pannuke,
-            tile_size=tile_size,
-            padding_factor=padding_factor,
-        )
-        scale_factor = np.array(raw_.shape[:2]) / np.array(
-            [full_shape[-1], full_shape[-2]]
-        )
-        coord_ = (np.array(coord) * scale_factor[[0, 0, 1, 1]]).astype(int)
-        raw_ = raw_[coord_[2] : coord_[3], coord_[0] : coord_[1]]
-    raw = get_bg_filt(raw_, inten_max=inten_max)
-    raw = cv2.resize(
-        raw.astype(np.uint8), (pshp[1], pshp[0]), interpolation=cv2.INTER_NEAREST
-    ).astype(bool)
-    print(raw.shape, out.shape, raw_.shape)
-    for i, sl in enumerate(after_cc):
-        i += 1
-        if sl:
-            roi_mult = raw[sl]
-            msk = out_[sl] == i
-            if roi_mult[msk].mean() > 0.5:
-                out[sl] += (out_[sl] == i) * i_
-                i_ += 1
-    return out
+    return out_
+    # after_cc = find_objects(out_)
+    # out = np.zeros(pshp, dtype=np.int32)
+    # i_ = 1
+    # if type(wsi_path).__module__ == np.__name__:
+    #     raw_ = wsi_path[coord[-1]]
+    # else:
+    #     # TODO, something is still wrong FIX THIS
+    #     raw_ = get_wsi(
+    #         wsi_path,
+    #         read_ds=16,
+    #         pannuke=pannuke,
+    #         tile_size=tile_size,
+    #         padding_factor=padding_factor,
+    #     )
+    #     scale_factor = np.array(raw_.shape[:2]) / np.array(
+    #         [full_shape[-1], full_shape[-2]]
+    #     )
+    #     coord_ = (np.array(coord) * scale_factor[[0, 0, 1, 1]]).astype(int)
+    #     raw_ = raw_[coord_[2] : coord_[3], coord_[0] : coord_[1]]
+    # raw = get_bg_filt(raw_, inten_max=inten_max)
+    # raw = cv2.resize(
+    #     raw.astype(np.uint8), (pshp[1], pshp[0]), interpolation=cv2.INTER_NEAREST
+    # ).astype(bool)
+    # # print(raw.shape, out.shape, raw_.shape)
+    # for i, sl in enumerate(after_cc):
+    #     i += 1
+    #     if sl:
+    #         roi_mult = raw[sl]
+    #         msk = out_[sl] == i
+    #         if roi_mult[msk].mean() > 0.5:
+    #             out[sl] += (out_[sl] == i) * i_
+    #             i_ += 1
+    # return out
 
 
 def get_bg_filt(raw, inten_max=130):
@@ -745,8 +702,8 @@ def get_openslide_info(sl):
         int(sl.properties[f"openslide.level[{i}].downsample"])
         for i in range(level_count)
     ]
-    level_mpp_x = [mpp_x / i for i in level_downsamples]
-    level_mpp_y = [mpp_y / i for i in level_downsamples]
+    level_mpp_x = [mpp_x * i for i in level_downsamples]
+    level_mpp_y = [mpp_y * i for i in level_downsamples]
     return {
         "level_count": level_count,
         "mpp_x": mpp_x,

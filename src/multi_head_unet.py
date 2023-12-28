@@ -1,5 +1,6 @@
 import segmentation_models_pytorch as smp
-#from segmentation_models_pytorch.encoders import get_encoder
+
+# from segmentation_models_pytorch.encoders import get_encoder
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,28 +9,37 @@ from segmentation_models_pytorch.base import modules as md
 import segmentation_models_pytorch.base.initialization as init
 import timm
 
+
 def load_checkpoint(model, cp_path, device):
     cp = torch.load(cp_path, map_location=device)
-    step = cp["step"]
     try:
-        model.load_state_dict(cp['model_state_dict'])
+        model.load_state_dict(cp["model_state_dict"])
 
-        print("succesfully loaded checkpoint step",step)
+        print("succesfully loaded model weights")
     except:
         print("trying secondary checkpoint loading")
-        state_dict = cp['model_state_dict']
+        state_dict = cp["model_state_dict"]
         new_state_dict = OrderedDict()
         for k, v in state_dict.items():
-            name = k[7:] # remove 'module.' of DataParallel/DistributedDataParallel
+            name = k[7:]  # remove 'module.' of DataParallel/DistributedDataParallel
             new_state_dict[name] = v
 
         model.load_state_dict(new_state_dict)
-        print("succesfully loaded checkpoint step",step)
-    return model, step
-        
+        print("succesfully loaded model weights")
+    return model
+
 
 class TimmEncoderFixed(nn.Module):
-    def __init__(self, name, pretrained=True, in_channels=3, depth=5, output_stride=32, drop_rate=0.5, drop_path_rate=0.25):
+    def __init__(
+        self,
+        name,
+        pretrained=True,
+        in_channels=3,
+        depth=5,
+        output_stride=32,
+        drop_rate=0.5,
+        drop_path_rate=0.25,
+    ):
         super().__init__()
         kwargs = dict(
             in_chans=in_channels,
@@ -37,9 +47,8 @@ class TimmEncoderFixed(nn.Module):
             pretrained=pretrained,
             out_indices=tuple(range(depth)),
             drop_rate=drop_rate,
-            drop_path_rate=drop_path_rate
+            drop_path_rate=drop_path_rate,
         )
-
 
         self.model = timm.create_model(name, **kwargs)
 
@@ -64,6 +73,7 @@ class TimmEncoderFixed(nn.Module):
     @property
     def output_stride(self):
         return min(self._output_stride, 2**self._depth)
+
 
 def get_timm_encoder(
     name,

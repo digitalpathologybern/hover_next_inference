@@ -51,7 +51,6 @@ class WholeSlideDataset(Dataset):
         remove_oob: Optional[bool] = True,
         remove_alpha: Optional[bool] = True,
         ratio_object_thresh: Optional[float] = 1e-3,
-        global_norm: Optional[bool] = False,
     ) -> None:
         """
         Load a crop as a dataset format. The object is iterable.

@@ -1,10 +1,13 @@
 import os
 import copy
 import multiprocessing
+from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
 from typing import List, Union, Tuple
 import torch
 import numpy as np
 import zarr
+import time
 from numcodecs import Blosc
 from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
@@ -15,7 +18,6 @@ from src.augmentations import color_augmentations
 from src.spatial_augmenter import SpatialAugmenter
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
 
 def inference_main(
@@ -60,20 +62,27 @@ def inference_main(
     _, ext = os.path.splitext(params["p"])
     fn = params["p"].split(os.sep)[-1].split(ext)[0]
     params["output_dir"] = os.path.join(params["o"], fn)
-    if not os.path.isdir(params["o"]):
-        os.makedirs(params["o"])
-    params["model_out_p"] = params["output_dir"] + "/" + fn + "_raw_" + params["ts"]
+    if not os.path.isdir(params["output_dir"]):
+        os.makedirs(params["output_dir"])
+    params["model_out_p"] = (
+        params["output_dir"] + "/" + fn + "_raw_" + str(params["ts"])
+    )
     prog_path = os.path.join(params["output_dir"], "progress.txt")
-    if sum(["pannuke" in x for x in params["data_dirs"]]) > 0:
-        print("running pannuke inference at .25mpp")
-        params["pannuke"] = True
-    else:
-        params["pannuke"] = False
-    if (not os.path.exists(prog_path)) & (
-        os.path.exists(params["model_out_p"] + "_inst.zip")
+
+    if os.path.exists(params["model_out_p"] + "_inst.zip") & os.path.exists(
+        params["model_out_p"] + "_cls.zip"
     ):
-        print("inference already completed, skipping")
-        return params, None
+        try:
+            z_inst = zarr.open(params["model_out_p"] + "_inst.zip", mode="r")
+            z_cls = zarr.open(params["model_out_p"] + "_cls.zip", mode="r")
+            print("Inference already completed", z_inst.shape, z_cls.shape)
+            return params, (z_inst, z_cls)
+        except KeyError:
+            z_inst = None
+            z_cls = None
+            print(
+                "something went wrong with previous output files, rerunning inference"
+            )
 
     if device == "cpu":
         print("running inference on cpu, please verify that this is intended")
@@ -99,38 +108,30 @@ def inference_main(
             padding_factor=params["ov"],
             remove_background=True,
             ratio_object_thresh=0.0001,
-            global_norm=True,
         )
 
     # setup output files to write to, also create dummy file to resume inference if interruped
-    if not os.path.exists(prog_path):
-        z_inst = zarr.open(
-            params["model_out_p"] + "_inst.zip",
-            mode="w",
-            shape=(len(dataset), 3, params["ts"], params["ts"]),
-            chunks=(params["bs"], 3, params["ts"], params["ts"]),
-            dtype="f4",
-            compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.BITSHUFFLE),
-        )
-        z_cls = zarr.open(
-            params["model_out_p"] + "_cls.zip",
-            mode="w",
-            shape=(len(dataset), channels, params["ts"], params["ts"]),
-            chunks=(params["bs"], channels, params["ts"], params["ts"]),
-            dtype="u1",
-            compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.BITSHUFFLE),
-        )
-        # creating progress file to restart inference if it was interrupted
-        with open(prog_path, "w") as f:
-            f.write("0")
-        inf_start = 0
-    else:
-        z_inst = zarr.open(params["model_out_p"] + "_inst.zip", mode="a")
-        z_cls = zarr.open(params["model_out_p"] + "_cls.zip", mode="a")
-        inf_start = int(open(prog_path, "r").read())
-    if inf_start != 0:
-        print("resuming inference from", inf_start)
-        dataset = Subset(dataset, range(inf_start, len(dataset)))
+
+    z_inst = zarr.open(
+        params["model_out_p"] + "_inst.zip",
+        mode="w",
+        shape=(len(dataset), 3, params["ts"], params["ts"]),
+        chunks=(params["bs"], 3, params["ts"], params["ts"]),
+        dtype="f4",
+        compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.SHUFFLE),
+    )
+    z_cls = zarr.open(
+        params["model_out_p"] + "_cls.zip",
+        mode="w",
+        shape=(len(dataset), channels, params["ts"], params["ts"]),
+        chunks=(params["bs"], channels, params["ts"], params["ts"]),
+        dtype="u1",
+        compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.BITSHUFFLE),
+    )
+    # creating progress file to restart inference if it was interrupted
+    with open(prog_path, "w") as f:
+        f.write("0")
+    inf_start = 0
     # get model/ models and load checkpoint
     models = []
     for pth in params["data_dirs"]:
@@ -145,11 +146,8 @@ def inference_main(
         model = get_model(enc=enc, out_channels_cls=channels, out_channels_inst=5).to(
             device
         )
-        model, step = load_checkpoint(model, checkpoint_path, device)
-        if enc.startswith(("tu-dm_nfnet", "tu-nfnet")):
-            model.train()
-        else:
-            model.eval()
+        model = load_checkpoint(model, checkpoint_path, device)
+        model.eval()
         models.append(copy.deepcopy(model))
 
     dataloader = DataLoader(
@@ -168,45 +166,48 @@ def inference_main(
     # create augmentation functions on device
     augmenter = SpatialAugmenter(aug_params).to(device)
     color_aug_fn = color_augmentations(False, rank=device)
-    # Setup queue for IO thread
-    io_queue = multiprocessing.JoinableQueue()
 
     # IO thread to write output in parallel to inference
-    def writer_thread():
-        while True:
-            cls_, inst_, zc_ = io_queue.get()
-            if cls_ is None:
-                break
-            cls_ = (softmax(cls_.astype(np.float32), axis=1) * 255).astype(np.uint8)
-            z_cls[zc_ : zc_ + cls_.shape[0]] = cls_
-            z_inst[zc_ : zc_ + inst_.shape[0]] = inst_.astype(np.float32)
-            with open(prog_path, "w") as f:
-                f.write(str(zc_))
-            io_queue.task_done()
-        io_queue.task_done()
-        print("inference writer thread done...")
+    def dump_results(res, z_cls, z_inst, prog_path):
+        cls_, inst_, zc_ = res
+        if cls_ is None:
+            return
+        cls_ = (softmax(cls_.astype(np.float32), axis=1) * 255).astype(np.uint8)
+        z_cls[zc_ : zc_ + cls_.shape[0]] = cls_
+        z_inst[zc_ : zc_ + inst_.shape[0]] = inst_.astype(np.float32)
+        with open(prog_path, "w") as f:
+            f.write(str(zc_))
         return
 
-    writer = multiprocessing.Process(target=writer_thread, daemon=True)
-    writer.start()
-    # run inference
-    zc = inf_start
-    for raw, _ in tqdm(dataloader):
-        raw = raw.to(device, non_blocking=True).float()
-        raw = raw.permute(0, 3, 1, 2)  # BHWC -> BCHW
-        with torch.inference_mode():
-            ct, inst = batch_pseudolabel_ensemb(
-                raw, models, params["tta"], augmenter, color_aug_fn
-            )
-            io_queue.put((ct.cpu().detach().numpy(), inst.cpu().detach().numpy(), zc))
-            zc += params["bs"]
-    io_queue.put((None,None,None))
-    io_queue.join()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        futures = []
+        # run inference
+        zc = inf_start
+        for raw, _ in tqdm(dataloader):
+            raw = raw.to(device, non_blocking=True).float()
+            raw = raw.permute(0, 3, 1, 2)  # BHWC -> BCHW
+            with torch.inference_mode():
+                ct, inst = batch_pseudolabel_ensemb(
+                    raw, models, params["tta"], augmenter, color_aug_fn
+                )
+                futures.append(
+                    executor.submit(
+                        dump_results,
+                        (ct.cpu().detach().numpy(), inst.cpu().detach().numpy(), zc),
+                        z_cls,
+                        z_inst,
+                        prog_path,
+                    )
+                )
+                # io_queue.put()
+                zc += params["bs"]
+        # Block until all data is written
+        for _ in concurrent.futures.as_completed(futures):
+            pass
     # clean up
     if os.path.exists(prog_path):
         os.remove(prog_path)
     return params, (z_inst, z_cls)
-    # return output_dir, model_out_p, (z_inst, z_cls), pannuke
 
 
 def batch_pseudolabel_ensemb(
