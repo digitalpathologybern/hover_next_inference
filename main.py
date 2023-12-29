@@ -131,7 +131,7 @@ if __name__ == "__main__":
         "-ov",
         type=float,
         default=0.96875,
-        help="overlap between tiles, for conic, 0.96875 is best, for pannuke use 0.875 for better results",
+        help="overlap between tiles, for conic, 0.96875 is best, for pannuke use 0.9375 for better results",
     )
     parser.add_argument(
         "--pp_tiling",

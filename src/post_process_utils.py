@@ -312,21 +312,21 @@ def gen_tile_map(
             (dim, tile_crd[3] - tile_crd[2], tile_crd[1] - tile_crd[0]), dtype=dtype
         )
         coord_filter = (
-            (ds_coord[:, 0] < tile_crd[1])
+            ((ds_coord[:, 0]) < tile_crd[1])
             & ((ds_coord[:, 0] + ccrop) > tile_crd[0])
-            & (ds_coord[:, 1] < tile_crd[3])
+            & ((ds_coord[:, 1]) < tile_crd[3])
             & ((ds_coord[:, 1] + ccrop) > tile_crd[2])
         )
         ds_coord_subset = ds_coord[coord_filter] - np.array([tile_crd[0], tile_crd[2]])
 
     z_address = np.arange(ds_coord.shape[0])[coord_filter]
-    for i, (crd, tile) in enumerate(zip(ds_coord_subset, z[z_address])):
+    for _, (crd, tile) in enumerate(zip(ds_coord_subset, z[z_address])):
         if npy:
             tz, ty, tx = crd
         else:
             tx, ty = crd
-        tx = tx + cadj
-        ty = ty + cadj
+        tx = tx
+        ty = ty
         p_shift = [abs(i) if i < 0 else 0 for i in [ty, tx]]
         n_shift = [
             crd - (i + ccrop) if (i + ccrop) > crd else 0
@@ -668,12 +668,11 @@ def get_shapes(params, nclasses):
 
         ds_coord -= np.array([bounds_x, bounds_y])
 
-        orig_ts = 256
-        ccrop = int(orig_ts * padding_factor)
+        ccrop = int(tile_size * padding_factor)
         if (not params["pannuke"]) & (abs(dataset.mpp - 0.2425) < 0.05):
             ds_coord /= 2
 
-        ds_coord += (orig_ts - ccrop) // 2
+        ds_coord += (tile_size - ccrop) // 2
         ds_coord = ds_coord.astype(int)
         h, w = np.max(ds_coord, axis=0)
         out_img_shape = (2, int(h + ccrop), int(w + ccrop))

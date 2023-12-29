@@ -8,6 +8,7 @@ import torch
 import numpy as np
 import zarr
 import time
+from zipfile import BadZipFile
 from numcodecs import Blosc
 from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
@@ -69,6 +70,12 @@ def inference_main(
     )
     prog_path = os.path.join(params["output_dir"], "progress.txt")
 
+    if os.path.exists(os.path.join(params["output_dir"], "pinst_pp.zip")):
+        print(
+            "inference and postprocessing already completed, delete output or specify different output path to re-run"
+        )
+        return params, None
+
     if os.path.exists(params["model_out_p"] + "_inst.zip") & os.path.exists(
         params["model_out_p"] + "_cls.zip"
     ):
@@ -77,7 +84,7 @@ def inference_main(
             z_cls = zarr.open(params["model_out_p"] + "_cls.zip", mode="r")
             print("Inference already completed", z_inst.shape, z_cls.shape)
             return params, (z_inst, z_cls)
-        except KeyError:
+        except (KeyError, BadZipFile):
             z_inst = None
             z_cls = None
             print(

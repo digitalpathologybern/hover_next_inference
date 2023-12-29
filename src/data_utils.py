@@ -14,6 +14,7 @@ from src.constants import LUT_MAGNIFICATION_MPP, LUT_MAGNIFICATION_X
 
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+
 def normalize_min_max(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
     if mi is None:
         mi = np.min(x)
@@ -37,6 +38,7 @@ def center_crop(t, croph, cropw):
     startw = w // 2 - (cropw // 2)
     starth = h // 2 - (croph // 2)
     return t[..., starth : starth + croph, startw : startw + cropw]
+
 
 class WholeSlideDataset(Dataset):
     # From christian abbet
@@ -155,6 +157,10 @@ class WholeSlideDataset(Dataset):
             # Compute foreground mask
             self.mask = self._foreground_mask(
                 img_thumb, ratio_object_thresh=ratio_object_thresh
+            )
+            # pad with 1, to avoid rounding error:
+            self.mask = np.pad(
+                self.mask, ((0, 1), (0, 1)), mode="constant", constant_values=False
             )
             # Select subset of point that are part of the foreground
             id_valid = self.mask[
@@ -520,7 +526,7 @@ class WholeSlideDataset(Dataset):
             img = self._pil_rgba2rgb(img)
         if self.transform is not None:
             img = self.transform(img)
-        
+
         img = normalize_min_max(np.array(img), 0, 255)
 
         return torch.Tensor(np.array(img)), [
