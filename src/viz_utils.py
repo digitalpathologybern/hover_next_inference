@@ -45,10 +45,15 @@ def create_tsvs(pcls_out, params):
     sl_info = get_openslide_info(sl)
     sl.close()
     target_mpp = PANNUKE_MPP if params["pannuke"] else CONIC_MPP
-    target_level = np.argwhere(
-        np.isclose(sl_info["level_mpp_x"], target_mpp, atol=0.1)
-    ).item()
-    downsample = sl_info["level_downsamples"][target_level]
+    if target_mpp < np.max(sl_info["level_mpp_x"]):
+        optimal_level = np.nonzero(
+            np.array(sl_info["level_mpp_x"]) <= (target_mpp * 1.1)
+        )[0][-1]
+    else:
+        optimal_level = 0
+    downsample = sl_info["level_downsamples"][optimal_level]
+    scaling_factor = np.around(target_mpp / sl_info["level_mpp_x"][optimal_level])
+    downsample *= scaling_factor if scaling_factor > 1 else 1
 
     pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
 

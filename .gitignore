@@ -163,3 +163,5 @@ convnextv2_tiny_focal_fulldata_0/*
 logs/*
 convnextv2_large_focal_fulldata_0/*
 tmp.ipynb
+convnextv2_base_focal_fulldata_0/*
+pannuke_convnextv2_tiny_1/*

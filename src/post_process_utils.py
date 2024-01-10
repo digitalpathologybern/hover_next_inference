@@ -685,10 +685,15 @@ def get_shapes(params, nclasses):
     return params, ds_coord
 
 
-def get_openslide_info(sl):
-    level_count = int(sl.properties["openslide.level-count"])
-    mpp_x = float(sl.properties["openslide.mpp-x"])
-    mpp_y = float(sl.properties["openslide.mpp-y"])
+def get_openslide_info(sl: openslide.OpenSlide):
+    level_count = len(sl.level_downsamples)
+    try:
+        mpp_x = float(sl.properties[openslide.PROPERTY_NAME_MPP_X])
+        mpp_y = float(sl.properties[openslide.PROPERTY_NAME_MPP_Y])
+    except KeyError:
+        print("'No resolution found in WSI metadata, using default .2425")
+        mpp_x = 0.2425
+        mpp_y = 0.2425
     try:
         bounds_x, bounds_y = (
             int(sl.properties["openslide.bounds-x"]),
@@ -697,10 +702,8 @@ def get_openslide_info(sl):
     except KeyError:
         bounds_x = 0
         bounds_y = 0
-    level_downsamples = [
-        int(sl.properties[f"openslide.level[{i}].downsample"])
-        for i in range(level_count)
-    ]
+    level_downsamples = sl.level_downsamples
+
     level_mpp_x = [mpp_x * i for i in level_downsamples]
     level_mpp_y = [mpp_y * i for i in level_downsamples]
     return {

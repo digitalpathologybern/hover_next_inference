@@ -76,8 +76,10 @@ def inference_main(
         )
         return params, None
 
-    if os.path.exists(params["model_out_p"] + "_inst.zip") & os.path.exists(
-        params["model_out_p"] + "_cls.zip"
+    if (
+        os.path.exists(params["model_out_p"] + "_inst.zip")
+        & (os.path.exists(params["model_out_p"] + "_cls.zip"))
+        & (not os.path.exists(prog_path))
     ):
         try:
             z_inst = zarr.open(params["model_out_p"] + "_inst.zip", mode="r")
@@ -90,6 +92,9 @@ def inference_main(
             print(
                 "something went wrong with previous output files, rerunning inference"
             )
+
+    z_inst = None
+    z_cls = None
 
     if device == "cpu":
         print("running inference on cpu, please verify that this is intended")
@@ -158,7 +163,11 @@ def inference_main(
         models.append(copy.deepcopy(model))
 
     dataloader = DataLoader(
-        dataset, batch_size=params["bs"], shuffle=False, num_workers=4, pin_memory=True
+        dataset,
+        batch_size=params["bs"],
+        shuffle=False,
+        num_workers=params["inf_workers"],
+        pin_memory=True,
     )
     # parameters for test time augmentations, do not change
     aug_params = {
@@ -186,7 +195,8 @@ def inference_main(
             f.write(str(zc_))
         return
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    # Separate thread for IO
+    with ThreadPoolExecutor(max_workers=params["inf_writers"]) as executor:
         futures = []
         # run inference
         zc = inf_start
@@ -206,8 +216,9 @@ def inference_main(
                         prog_path,
                     )
                 )
-                # io_queue.put()
+
                 zc += params["bs"]
+
         # Block until all data is written
         for _ in concurrent.futures.as_completed(futures):
             pass
@@ -251,19 +262,30 @@ def batch_pseudolabel_ensemb(
     """
     tmp_3c_view = []
     tmp_ct_view = []
-    for _ in range(nviews // len(models)):
-        aug.interpolation = "bilinear"
-        view_aug = aug.forward_transform(raw)
-        aug.interpolation = "nearest"
-        view_aug = torch.clamp(color_aug_fn(view_aug), 0, 1)
+    # ensure that at least one view is run, even when specifying 1 view with many models
+    if nviews <= 0:
         out_fast = []
         with torch.inference_mode():
             for mod in models:
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    out_fast.append(aug.inverse_transform(mod(view_aug)))
+                    out_fast.append(mod(raw))
         out_fast = torch.stack(out_fast, axis=0).nanmean(0)
-        tmp_3c_view.append(out_fast[:, 2:5].softmax(1))
-        tmp_ct_view.append(out_fast[:, 5:].softmax(1))
-    ct = torch.stack(tmp_ct_view).nanmean(0)
-    inst = torch.stack(tmp_3c_view).nanmean(0)
+        ct = out_fast[:, 5:].softmax(1)
+        inst = out_fast[:, 2:5].softmax(1)
+    else:
+        for _ in range(nviews):
+            aug.interpolation = "bilinear"
+            view_aug = aug.forward_transform(raw)
+            aug.interpolation = "nearest"
+            view_aug = torch.clamp(color_aug_fn(view_aug), 0, 1)
+            out_fast = []
+            with torch.inference_mode():
+                for mod in models:
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        out_fast.append(aug.inverse_transform(mod(view_aug)))
+            out_fast = torch.stack(out_fast, axis=0).nanmean(0)
+            tmp_3c_view.append(out_fast[:, 2:5].softmax(1))
+            tmp_ct_view.append(out_fast[:, 5:].softmax(1))
+        ct = torch.stack(tmp_ct_view).nanmean(0)
+        inst = torch.stack(tmp_3c_view).nanmean(0)
     return ct, inst

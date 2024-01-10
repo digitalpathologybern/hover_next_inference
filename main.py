@@ -134,6 +134,19 @@ if __name__ == "__main__":
         help="overlap between tiles, for conic, 0.96875 is best, for pannuke use 0.9375 for better results",
     )
     parser.add_argument(
+        "--inf_workers",
+        type=int,
+        default=4,
+        help="number of workers for inference dataloader, maximally set this to number of cores",
+    )
+    parser.add_argument(
+        "--inf_writers",
+        type=int,
+        default=2,
+        help="number of writers for inference dataloader, default 2 should be sufficient"
+        + ", \ tune based on core availability and delay between final inference step and inference finalization",
+    )
+    parser.add_argument(
         "--pp_tiling",
         type=int,
         default=8,
