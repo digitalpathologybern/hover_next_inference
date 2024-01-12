@@ -64,10 +64,11 @@ def write(pinst_out, pcls_out, running_max, res, params):
             ov_regions, local_regions, which = get_overlap_regions(
                 t_, params["pp_overlap"], pinst_out.shape
             )
-            pinst_[pinst_ != 0] += running_max
+            msk = pinst_ != 0
+            pinst_[msk] += running_max
             pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
             running_max += max_
-            initial_ids = np.unique(pinst_[pinst_ != 0])
+            initial_ids = np.unique(pinst_[msk])
             old_ids = []
 
             for reg, loc, whi in zip(ov_regions, local_regions, which):
