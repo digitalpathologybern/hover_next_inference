@@ -371,8 +371,10 @@ def faster_instance_seg(out_img, out_cls, best_fg_thresh_cl, best_seed_thresh_cl
     max_inst = 0
     for bb in bboxes:
         bg_pred = out_img[(slice(0, 1, None), *bb)].squeeze()
-        if (np.array(bg_pred.shape[-2:]) <= 2).any() | (
-            np.array(bg_pred.shape).sum() <= 64
+        if (
+            (np.array(bg_pred.shape[-2:]) <= 2).any()
+            | (np.array(bg_pred.shape).sum() <= 64)
+            | (len(bg_pred.shape) < 2)
         ):
             continue
         fg_pred = out_img[(slice(1, 2, None), *bb)].squeeze()

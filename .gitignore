@@ -165,3 +165,5 @@ convnextv2_large_focal_fulldata_0/*
 tmp.ipynb
 convnextv2_base_focal_fulldata_0/*
 pannuke_convnextv2_tiny_1/*
+get_wsi_sizes.ipynb
+main_debug.py
