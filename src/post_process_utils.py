@@ -46,11 +46,7 @@ def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
 
 def write(pinst_out, pcls_out, running_max, res, params):
     pinst_, pcls_, max_, t_, skip = res
-
-    if skip:
-        print("empty, skipping", t_)
-
-    else:
+    if not skip:
         if params["npy"]:
             pinst_[pinst_ != 0] += running_max
             pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
@@ -60,7 +56,6 @@ def write(pinst_out, pcls_out, running_max, res, params):
 
         else:
             pinst_ = np.asarray(pinst_, dtype=np.int32)
-            start_time = time.process_time()
             ov_regions, local_regions, which = get_overlap_regions(
                 t_, params["pp_overlap"], pinst_out.shape
             )
@@ -108,7 +103,6 @@ def write(pinst_out, pcls_out, running_max, res, params):
             old_ids = np.concatenate(old_ids)
             pcls_out = update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids)
             pinst_out[t_[2] : t_[3], t_[0] : t_[1]] = pinst_
-            print("write crop", time.process_time() - start_time)
             # res.task_done()
 
     return pinst_out, pcls_out, running_max
@@ -159,8 +153,8 @@ def work(tcrd, ds_coord, wsis, z, params):
         max_hole_size,
         130,
         params["pannuke"],
-        params["ts"],
-        params["ov"],
+        params["tile_size"],
+        params["overlap"],
     )
     pred_ct = make_ct(out_cls, pred_inst)
     del out_cls
@@ -592,7 +586,7 @@ def remove_small_holescv2(img, sz):
 
 
 def get_pp_params(params, mit_eval=False):
-    eval_metric = params["m"]
+    eval_metric = params["metric"]
     fg_threshs = []
     seed_threshs = []
     for exp in params["data_dirs"]:
@@ -628,8 +622,8 @@ def get_pp_params(params, mit_eval=False):
 
 
 def get_shapes(params, nclasses):
-    padding_factor = params["ov"]
-    tile_size = params["ts"]
+    padding_factor = params["overlap"]
+    tile_size = params["tile_size"]
     params["npy"] = False
 
     if params["p"].endswith(".npy"):

@@ -71,16 +71,7 @@ Support for other datatypes are easy to implement. Check the NPYDataloader for r
 
 ## Using the output files for downstream analysis:
 
-```python
-import zarr
-import numpy as np
-import json
-
-instance_map = zarr.load("pinst_pp.zip") 
-with open("class_inst.json","r") as f:
-    class_info = json.load(f)
-
-```
+By default, the pipeline produces an instance-map, a class-lookup with centroids and a number of .tsv files 
 
 
 ## Docker and Apptainer/Singularity Container:

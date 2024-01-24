@@ -15,6 +15,7 @@ import concurrent.futures
 import json
 import os
 from typing import Union
+from tqdm.auto import tqdm
 
 
 def post_process_main(
@@ -50,8 +51,8 @@ def post_process_main(
     if params["npy"]:
         wsis = NpyDataset(
             params["p"],
-            params["ts"],
-            padding_factor=params["ov"],
+            params["tile_size"],
+            padding_factor=params["overlap"],
             ratio_object_thresh=0.5,
             min_tiss=0.1,
         ).store
@@ -72,16 +73,15 @@ def post_process_main(
             compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.SHUFFLE),
         )
 
-    # res = multiprocessing.JoinableQueue()
-    # numcodecs.blosc.use_threads = True
     executor = ProcessPoolExecutor(max_workers=params["pp_workers"])
-    # writer = executor.submit(writer_thread, pinst_out, res, params)
     tile_processors = [
         executor.submit(work, tcrd, ds_coord, wsis, z, params) for tcrd in tile_crds
     ]
     pcls_out = {}
     running_max = 0
-    for future in concurrent.futures.as_completed(tile_processors):
+    for future in tqdm(
+        concurrent.futures.as_completed(tile_processors), total=len(tile_processors)
+    ):
         pinst_out, pcls_out, running_max = write(
             pinst_out, pcls_out, running_max, future.result(), params
         )

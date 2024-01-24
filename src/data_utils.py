@@ -10,9 +10,22 @@ from tqdm import tqdm
 import cv2
 import mahotas as mh
 from src.constants import LUT_MAGNIFICATION_MPP, LUT_MAGNIFICATION_X
-
+from shutil import copy2, copytree
+import os
 
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+def copy_img(im_path, cache_dir):
+    file, ext = os.path.splitext(im_path)
+    if ext == ".mrxs":
+        copy2(im_path, cache_dir)
+        copytree(
+            file, os.path.join(cache_dir, os.path.split(file)[-1]), dirs_exist_ok=True
+        )
+    else:
+        copy2(im_path, cache_dir)
+    return os.path.join(cache_dir, os.path.split(im_path)[-1])
 
 
 def normalize_min_max(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):

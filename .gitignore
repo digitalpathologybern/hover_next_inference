@@ -167,3 +167,5 @@ convnextv2_base_focal_fulldata_0/*
 pannuke_convnextv2_tiny_1/*
 get_wsi_sizes.ipynb
 main_debug.py
+figures/*
+*.txt

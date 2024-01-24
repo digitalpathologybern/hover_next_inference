@@ -4,11 +4,25 @@ import sys
 from timeit import default_timer as timer
 from datetime import timedelta
 import torch
-from src.inference import inference_main
+from glob import glob
+from src.inference import inference_main, get_inference_setup
 from src.post_process import post_process_main
+from src.data_utils import copy_img
 
 torch.backends.cudnn.benchmark = True
 print(torch.cuda.device_count(), " cuda devices")
+
+
+def prepare_input(params):
+    if params["input"].endswith(".txt"):
+        if os.path.exists(params["input"]):
+            with open(params["input"], "r") as f:
+                input_list = f.read().splitlines()
+        else:
+            raise FileNotFoundError("input file not found")
+    else:
+        input_list = sorted(glob(params["input"]))
+    return input_list
 
 
 def main(params: dict):
@@ -16,77 +30,75 @@ def main(params: dict):
     Start nuclei segmentation and classification pipeline using specified parameters from argparse
     """
 
-    if params["m"] not in ["mpq", "f1", "hd", "r2"]:
-        params["m"] = "f1"
+    if params["metric"] not in ["mpq", "f1", "hd", "r2"]:
+        params["metric"] = "f1"
         print("invalid metric, falling back to f1")
     else:
-        print("optimizing postprocessing for: ", params["m"])
+        print("optimizing postprocessing for: ", params["metric"])
 
-    params["p"] = params["p"].rstrip()
     params["root"] = os.path.dirname(__file__)
     params["data_dirs"] = [
         os.path.join(params["root"], c) for c in params["cp"].split(",")
     ]
 
-    print("input path: ", params["p"])
-    print("saving results to:", params["o"])
+    print("saving results to:", params["output_root"])
     print("loading model from:", params["data_dirs"])
 
-    if sum(["pannuke" in x for x in params["data_dirs"]]) > 0:
-        print("running pannuke inference at .25mpp")
-        params["pannuke"] = True
-    else:
-        params["pannuke"] = False
-    print(
-        "processing input using",
-        "pannuke" if params["pannuke"] else "lizard",
-        "trained model",
-    )
-
-    start_time = timer()
     # Run per tile inference and store results
-    params, z = inference_main(params)
-    print(
-        "::: finished or skipped inference after",
-        timedelta(seconds=timer() - start_time),
-    )
-    process_timer = timer()
-    # for faster processing, only run inference on a GPU node and
-    # do post-processing on basic CPU nodes
-    if params["slurm"]:
-        try:
-            z[0].store.close()
-            z[1].store.close()
-        except TypeError:
-            # if z is None, z cannot be indexed -> throws a TypeError
-            pass
-        print("submitting slurm job for postprocessing")
-        sys.exit(0)
-    # Stitch tiles together and postprocess to get instance segmentation
-    if not os.path.exists(os.path.join(params["output_dir"], "pinst_pp.zip")):
-        print("running post-processing")
-        print("save polygons", params["save_polygon"])
+    params, models, augmenter, color_aug_fn = get_inference_setup(params)
 
-        z_pp = post_process_main(
-            params,
-            z,
+    input_list = prepare_input(params)
+    print("Running inference on", len(input_list), "images")
+
+    for wsi in input_list:
+        start_time = timer()
+        params["p"] = wsi.rstrip()
+        print("Processing ", params["p"])
+        if params["cache"] is not None:
+            print("Caching WSI at:")
+            params["p"] = copy_img(params["p"], params["cache"])
+            print(params["p"])
+
+        params, z = inference_main(params, models, augmenter, color_aug_fn)
+        print(
+            "::: finished or skipped inference after",
+            timedelta(seconds=timer() - start_time),
         )
-        if not params["keep_raw"]:
+        process_timer = timer()
+        if params["slurm"]:
             try:
-                os.remove(params["model_out_p"] + "_inst.zip")
-                os.remove(params["model_out_p"] + "_cls.zip")
-            except FileNotFoundError:
+                z[0].store.close()
+                z[1].store.close()
+            except TypeError:
+                # if z is None, z cannot be indexed -> throws a TypeError
                 pass
-    else:
-        z_pp = None
-    print(
-        "::: postprocessing took",
-        timedelta(seconds=timer() - process_timer),
-        "total elapsed time",
-        timedelta(seconds=timer() - start_time),
-    )
-    if z_pp is not None:
-        z_pp.store.close()
+            print("submitting slurm job for postprocessing")
+            sys.exit(0)
+        # Stitch tiles together and postprocess to get instance segmentation
+        if not os.path.exists(os.path.join(params["output_dir"], "pinst_pp.zip")):
+            print("running post-processing")
+            print("save polygons", params["save_polygon"])
+
+            z_pp = post_process_main(
+                params,
+                z,
+            )
+            if not params["keep_raw"]:
+                try:
+                    os.remove(params["model_out_p"] + "_inst.zip")
+                    os.remove(params["model_out_p"] + "_cls.zip")
+                except FileNotFoundError:
+                    pass
+        else:
+            z_pp = None
+        print(
+            "::: postprocessing took",
+            timedelta(seconds=timer() - process_timer),
+            "total elapsed time",
+            timedelta(seconds=timer() - start_time),
+        )
+        if z_pp is not None:
+            z_pp.store.close()
     print("done")
 
 
@@ -95,9 +107,15 @@ if __name__ == "__main__":
     print(device)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", type=str, default=None, help="path to wsi", required=True)
     parser.add_argument(
-        "-o", type=str, default=None, help="output directory", required=True
+        "--input",
+        type=str,
+        default=None,
+        help="path to wsi, glob pattern or text file containing paths",
+        required=True,
+    )
+    parser.add_argument(
+        "--output_root", type=str, default=None, help="output directory", required=True
     )
     parser.add_argument(
         "--cp",
@@ -108,10 +126,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--slurm", action="store_true", help="split inference to gpu and cpu node"
     )
-    parser.add_argument("-m", type=str, default="f1", help="metric to optimize for pp")
-    parser.add_argument("-bs", type=int, default=64, help="batch size")
     parser.add_argument(
-        "-tta",
+        "--metric", type=str, default="f1", help="metric to optimize for pp"
+    )
+    parser.add_argument("--batch_size", type=int, default=64, help="batch size")
+    parser.add_argument(
+        "--tta",
         type=int,
         default=4,
         help="test time augmentations, number of views (4= results from 4 different augmentations are averaged for each sample)",
@@ -122,13 +142,13 @@ if __name__ == "__main__":
         help="save output as polygons to load in qupath",
     )
     parser.add_argument(
-        "-ts",
+        "--tile_size",
         type=int,
         default=256,
         help="tile size, models are trained on 256x256",
     )
     parser.add_argument(
-        "-ov",
+        "--overlap",
         type=float,
         default=0.96875,
         help="overlap between tiles, for conic, 0.96875 is best, for pannuke use 0.9375 for better results",
@@ -169,5 +189,6 @@ if __name__ == "__main__":
         action="store_true",
         help="keep raw predictions (can be large files for particularly for pannuke)",
     )
+    parser.add_argument("--cache", type=str, default=None, help="cache path")
     params = vars(parser.parse_args())
     main(params)

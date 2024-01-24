@@ -1,13 +1,11 @@
 import os
 import copy
-import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from typing import List, Union, Tuple
 import torch
 import numpy as np
 import zarr
-import time
 from zipfile import BadZipFile
 from numcodecs import Blosc
 from torch.utils.data import DataLoader, Subset
@@ -17,56 +15,26 @@ from src.multi_head_unet import get_model, load_checkpoint
 from src.data_utils import WholeSlideDataset, NpyDataset
 from src.augmentations import color_augmentations
 from src.spatial_augmenter import SpatialAugmenter
+from src.constants import TTA_AUG_PARAMS
+import toml
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def inference_main(
     params: dict,
-) -> Tuple[str, str, Union[Tuple[zarr.ZipStore, zarr.ZipStore], None]]:
-    """
-        Run inference on wsi of different formats as well as ome.tif and .npy stacked images. For npy the format should be e.g. [100,1024,1024,3]
-
-        Parameters
-        ----------
-        input_path: str
-            Path to image.
-        output_dir: str
-            Where to store the results. A new folder is created for the specific input supplied
-        cp_paths: float
-            list of paths to checkpoints of all models (folder structure should to be like this):
-                                        --{cp_path} \\
-                                                     |train \\
-                                                            |best_model
-                                        --{cp_path} \\
-                                                     |train \\
-                                                            |best_model
-        tile_size: int
-            Tile size for the input and extraction from WSI. Model is trained on 256 but fully convolutional so any 512 1024 etc. should be fine
-        batch_size: int
-            Batch Size to run inference with, optimize for your GPU / CPU setup
-        
-        Returns
-        -------
-        output_dir: str
-            result directory with filename as folder name
-        model_out_p: str
-            inference result filename
-        (z_inst, z_cls):
-            zarr stores with instance and class predictions
-            If inference was already completed, returns None
-        pannuke: bool
-            whether running pannuke processing
-        """
-
+    models,
+    augmenter,
+    color_aug_fn,
+):
     print(repr(params["p"]))
     _, ext = os.path.splitext(params["p"])
     fn = params["p"].split(os.sep)[-1].split(ext)[0]
-    params["output_dir"] = os.path.join(params["o"], fn)
+    params["output_dir"] = os.path.join(params["output_root"], fn)
     if not os.path.isdir(params["output_dir"]):
         os.makedirs(params["output_dir"])
     params["model_out_p"] = (
-        params["output_dir"] + "/" + fn + "_raw_" + str(params["ts"])
+        params["output_dir"] + "/" + fn + "_raw_" + str(params["tile_size"])
     )
     prog_path = os.path.join(params["output_dir"], "progress.txt")
 
@@ -101,13 +69,11 @@ def inference_main(
 
     # create datasets from specified input
 
-    channels = 6 if params["pannuke"] else 8
-
     if np.isin(ext, [".npy", ".npz"]):
         dataset = NpyDataset(
             params["p"],
-            params["ts"],
-            padding_factor=params["ov"],
+            params["tile_size"],
+            padding_factor=params["overlap"],
             ratio_object_thresh=0.3,
             min_tiss=0.1,
         )
@@ -115,9 +81,9 @@ def inference_main(
         level = 40 if params["pannuke"] else 20
         dataset = WholeSlideDataset(
             params["p"],
-            crop_sizes_px=[params["ts"]],
+            crop_sizes_px=[params["tile_size"]],
             crop_magnifications=[level],
-            padding_factor=params["ov"],
+            padding_factor=params["overlap"],
             remove_background=True,
             ratio_object_thresh=0.0001,
         )
@@ -127,16 +93,26 @@ def inference_main(
     z_inst = zarr.open(
         params["model_out_p"] + "_inst.zip",
         mode="w",
-        shape=(len(dataset), 3, params["ts"], params["ts"]),
-        chunks=(params["bs"], 3, params["ts"], params["ts"]),
+        shape=(len(dataset), 3, params["tile_size"], params["tile_size"]),
+        chunks=(params["batch_size"], 3, params["tile_size"], params["tile_size"]),
         dtype="f4",
         compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.SHUFFLE),
     )
     z_cls = zarr.open(
         params["model_out_p"] + "_cls.zip",
         mode="w",
-        shape=(len(dataset), channels, params["ts"], params["ts"]),
-        chunks=(params["bs"], channels, params["ts"], params["ts"]),
+        shape=(
+            len(dataset),
+            params["out_channels_cls"],
+            params["tile_size"],
+            params["tile_size"],
+        ),
+        chunks=(
+            params["batch_size"],
+            params["out_channels_cls"],
+            params["tile_size"],
+            params["tile_size"],
+        ),
         dtype="u1",
         compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.BITSHUFFLE),
     )
@@ -144,44 +120,14 @@ def inference_main(
     with open(prog_path, "w") as f:
         f.write("0")
     inf_start = 0
-    # get model/ models and load checkpoint
-    models = []
-    for pth in params["data_dirs"]:
-        checkpoint_path = f"{pth}/train/best_model"
-        with open(f"{pth}/params.toml", "r") as f:
-            enc = [
-                x.split('= "')[1].rstrip('"\n')
-                for x in f.readlines()
-                if x.startswith("encoder")
-            ][0]
-
-        model = get_model(enc=enc, out_channels_cls=channels, out_channels_inst=5).to(
-            device
-        )
-        model = load_checkpoint(model, checkpoint_path, device)
-        model.eval()
-        models.append(copy.deepcopy(model))
 
     dataloader = DataLoader(
         dataset,
-        batch_size=params["bs"],
+        batch_size=params["batch_size"],
         shuffle=False,
         num_workers=params["inf_workers"],
         pin_memory=True,
     )
-    # parameters for test time augmentations, do not change
-    aug_params = {
-        "mirror": {"prob_x": 0.5, "prob_y": 0.5, "prob": 0.75},
-        "translate": {"max_percent": 0.03, "prob": 0.0},
-        "scale": {"min": 0.8, "max": 1.2, "prob": 0.0},
-        "zoom": {"min": 0.8, "max": 1.2, "prob": 0.0},
-        "rotate": {"rot90": True, "prob": 0.75},
-        "shear": {"max_percent": 0.1, "prob": 0.0},
-        "elastic": {"alpha": [120, 120], "sigma": 8, "prob": 0.0},
-    }
-    # create augmentation functions on device
-    augmenter = SpatialAugmenter(aug_params).to(device)
-    color_aug_fn = color_augmentations(False, rank=device)
 
     # IO thread to write output in parallel to inference
     def dump_results(res, z_cls, z_inst, prog_path):
@@ -217,7 +163,7 @@ def inference_main(
                     )
                 )
 
-                zc += params["bs"]
+                zc += params["batch_size"]
 
         # Block until all data is written
         for _ in concurrent.futures.as_completed(futures):
@@ -289,3 +235,36 @@ def batch_pseudolabel_ensemb(
         ct = torch.stack(tmp_ct_view).nanmean(0)
         inst = torch.stack(tmp_3c_view).nanmean(0)
     return ct, inst
+
+
+def get_inference_setup(params):
+    # get model/ models and load checkpoint
+    models = []
+    for pth in params["data_dirs"]:
+        checkpoint_path = f"{pth}/train/best_model"
+        mod_params = toml.load(f"{pth}/params.toml")
+        params["out_channels_cls"] = mod_params["out_channels_cls"]
+        params["inst_channels"] = mod_params["inst_channels"]
+        model = get_model(
+            enc=mod_params["encoder"],
+            out_channels_cls=params["out_channels_cls"],
+            out_channels_inst=params["inst_channels"],
+        ).to(device)
+        model = load_checkpoint(model, checkpoint_path, device)
+        model.eval()
+        models.append(copy.deepcopy(model))
+    # create augmentation functions on device
+    augmenter = SpatialAugmenter(TTA_AUG_PARAMS).to(device)
+    color_aug_fn = color_augmentations(False, rank=device)
+
+    if mod_params["dataset"] == "pannuke":
+        params["pannuke"] = True
+    else:
+        params["pannuke"] = False
+    print(
+        "processing input using",
+        "pannuke" if params["pannuke"] else "lizard",
+        "trained model",
+    )
+
+    return params, models, augmenter, color_aug_fn

@@ -42,3 +42,14 @@ LUT_MAGNIFICATION_MPP = [0.97, 0.485, 0.2425, 0.124]
 
 CONIC_MPP = 0.5
 PANNUKE_MPP = 0.25
+
+# parameters for test time augmentations, do not change
+TTA_AUG_PARAMS = {
+    "mirror": {"prob_x": 0.5, "prob_y": 0.5, "prob": 0.75},
+    "translate": {"max_percent": 0.03, "prob": 0.0},
+    "scale": {"min": 0.8, "max": 1.2, "prob": 0.0},
+    "zoom": {"min": 0.8, "max": 1.2, "prob": 0.0},
+    "rotate": {"rot90": True, "prob": 0.75},
+    "shear": {"max_percent": 0.1, "prob": 0.0},
+    "elastic": {"alpha": [120, 120], "sigma": 8, "prob": 0.0},
+}
