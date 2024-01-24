@@ -169,3 +169,15 @@ get_wsi_sizes.ipynb
 main_debug.py
 figures/*
 *.txt
+model_weights/*
+cpu_pp_pannuke.sh
+cpu_pp.sh
+debug_inference.sh
+dummy.sh
+run_eos_inference.sh
+run_inference_container_2.sh
+run_inference_container_pannuke.sh
+run_inference_container.sh
+run_wsi_validation_set_lizard_testo.sh
+run_wsi_validation_set_lizard.sh
+run_wsi_validation_set_pannuke.sh
