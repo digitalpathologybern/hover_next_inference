@@ -29,8 +29,8 @@ To run a single slide:
 
 ```bash
 python3 main.py \
-    --input_path "/path-to-wsi/wsi.svs" \
-    --output_path "/results/" \
+    --input "/path-to-wsi/wsi.svs" \
+    --output_root "results/" \
     --cp "lizard_convnextv2_large" \
     --tta 4 \
     --inf_workers 4 \
@@ -50,8 +50,8 @@ NPY Inference works the same as WSI inference, however output files are only a Z
 
 ```bash
 python3 main.py \
-    --input_path "/path-to-wsi/wsi.npy" \
-    --output_path "/results/" \
+    --input "/path-to-wsi/wsi.npy" \
+    --output_root "/results/" \
     --cp "lizard_convnextv2_large" \
     --tta 4 \
     --inf_workers 4 \
