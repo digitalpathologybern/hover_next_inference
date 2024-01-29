@@ -75,7 +75,7 @@ def post_process_main(
 
     executor = ProcessPoolExecutor(max_workers=params["pp_workers"])
     tile_processors = [
-        executor.submit(work, tcrd, ds_coord, wsis, z, params) for tcrd in tile_crds
+        executor.submit(work, tcrd, ds_coord, z, params) for tcrd in tile_crds
     ]
     pcls_out = {}
     running_max = 0

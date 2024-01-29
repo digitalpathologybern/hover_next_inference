@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
 from scipy.special import softmax
 from src.multi_head_unet import get_model, load_checkpoint
-from src.data_utils import WholeSlideDataset, NpyDataset
+from src.data_utils import WholeSlideDataset, NpyDataset, ImageDataset
 from src.augmentations import color_augmentations
 from src.spatial_augmenter import SpatialAugmenter
 from src.constants import TTA_AUG_PARAMS
@@ -28,13 +28,12 @@ def inference_main(
     color_aug_fn,
 ):
     print(repr(params["p"]))
-    _, ext = os.path.splitext(params["p"])
-    fn = params["p"].split(os.sep)[-1].split(ext)[0]
+    fn = params["p"].split(os.sep)[-1].split(params["ext"])[0]
     params["output_dir"] = os.path.join(params["output_root"], fn)
     if not os.path.isdir(params["output_dir"]):
         os.makedirs(params["output_dir"])
-    params["model_out_p"] = (
-        params["output_dir"] + "/" + fn + "_raw_" + str(params["tile_size"])
+    params["model_out_p"] = os.path.join(
+        params["output_dir"], fn + "_raw_" + str(params["tile_size"])
     )
     prog_path = os.path.join(params["output_dir"], "progress.txt")
 
@@ -69,8 +68,16 @@ def inference_main(
 
     # create datasets from specified input
 
-    if np.isin(ext, [".npy", ".npz"]):
+    if params["input_type"] == "npy":
         dataset = NpyDataset(
+            params["p"],
+            params["tile_size"],
+            padding_factor=params["overlap"],
+            ratio_object_thresh=0.3,
+            min_tiss=0.1,
+        )
+    elif params["input_type"] == "img":
+        dataset = ImageDataset(
             params["p"],
             params["tile_size"],
             padding_factor=params["overlap"],

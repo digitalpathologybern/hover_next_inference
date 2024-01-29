@@ -53,8 +53,10 @@ def center_crop(t, croph, cropw):
     return t[..., starth : starth + croph, startw : startw + cropw]
 
 
+# Taken from https://github.com/christianabbet/SRA
+
+
 class WholeSlideDataset(Dataset):
-    # From christian abbet
     def __init__(
         self,
         path: str,
@@ -426,24 +428,6 @@ class WholeSlideDataset(Dataset):
 
         return mask
 
-    def get_global_min_max(self):
-        min_ = []
-        max_ = []
-        print("computing min max global")
-        for mag, level, tx, ty, cx, cy, bx, by, s_src, s_tar in tqdm(
-            self.crop_metadatas[0]
-        ):
-            # Extract crop
-            img = np.array(
-                self.s.read_region(
-                    (int(tx), int(ty)), int(level), size=(int(s_src), int(s_src))
-                )
-            )[..., :3]
-            min_.append(np.min(img, axis=(0, 1)))
-            max_.append(np.max(img, axis=(0, 1)))
-        self.min_ = np.min(np.stack(min_), 0)
-        self.max_ = np.max(np.stack(max_), 0)
-
     @staticmethod
     def _build_reference_grid(
         crop_size_px: int,
@@ -667,3 +651,50 @@ class NpyDataset(Dataset):
         out_img = self.store[c, x : x + self.crop_size_px, y : y + self.crop_size_px]
         out_img = normalize_min_max(out_img, 0, 255)
         return out_img, (c, x, y)
+
+
+class ImageDataset(NpyDataset):
+    def __init__(
+        self,
+        path,
+        crop_size_px,
+        padding_factor=0.5,
+        remove_bg=True,
+        remove_alpha=True,
+        ratio_object_thresh=5e-1,
+        min_tiss=0.1,
+    ):
+        self.path = path
+        self.crop_size_px = crop_size_px
+        self.padding_factor = padding_factor
+        self.remove_alpha = remove_alpha
+        self.ratio_object_thresh = ratio_object_thresh
+        self.min_tiss = min_tiss
+        self.remove_bg = remove_bg
+        self.store = self._load_image()
+
+        self.orig_shape = self.store.shape
+        self.store = np.pad(
+            self.store,
+            [
+                (0, 0),
+                (self.crop_size_px, self.crop_size_px),
+                (self.crop_size_px, self.crop_size_px),
+                (0, 0),
+            ],
+            "constant",
+            constant_values=0,
+        )
+        self.msks, self.fg_amount = self._foreground_mask()
+        self.grid = self._calc_grid()
+        self.idx = self._create_idx()
+
+    def _load_image(self):
+        img = cv2.imread(self.path)
+        if img.shape[-1] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+        elif img.shape[-1] == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        else:
+            raise NotImplementedError("Image is neither RGBA nor RGB")
+        return img[np.newaxis, ...]

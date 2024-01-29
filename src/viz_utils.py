@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from skimage.measure import find_contours, regionprops
 import geojson
@@ -62,7 +63,7 @@ def create_tsvs(pcls_out, params):
     colors = ["-256", "-65536"]
     i = 0
     for pt in classes:
-        file = params["output_dir"] + "/pred_" + pt + ".tsv"
+        file = os.path.join(params["output_dir"], "pred_" + pt + ".tsv")
         textfile = open(file, "w")
 
         textfile.write("x" + "\t" + "y" + "\t" + "name" + "\t" + "color" + "\n")

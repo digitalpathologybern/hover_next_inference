@@ -67,7 +67,7 @@ Support for other datatypes are easy to implement. Check the NPYDataloader for r
 2. If you have multiple machines, e.g. CPU-only machines, you can move post-processing to that machine
 3. '--tta 4' yields robust results with very high speed
 4. '--inf_workers' should be set to the number of available cores
-5. '--pp_workers' should be set to number of available cores -1, with '--pp_tiling' set to a low number where the machine does not run OOM. E.g. on a 16-Core machine, '--pp_workers 16 --pp_tiling 8 is good
+5. '--pp_workers' should be set to number of available cores -1, with '--pp_tiling' set to a low number where the machine does not run OOM. E.g. on a 16-Core machine, '--pp_workers 16 --pp_tiling 8 is good. If you are running out of memory, increase --pp_tiling.
 
 ## Using the output files for downstream analysis:
 
@@ -78,16 +78,13 @@ By default, the pipeline produces an instance-map, a class-lookup with centroids
 
 ```bash
 # don't forget to mount your local directory
-export APPTAINER_BINDPATH="/storage:/storage"
+export APPTAINER_BINDPATH="/storage"
 apptainer exec --nv /path-to-container/nuc_torch_v16.sif \
     python3 /path-to-repo/main.py \
-    -p "/path-to-wsi/wsi.svs" \
-    -o "/results/" \
-	--cp "convnextv2_large_focal_fulldata_0" \
-    -tta 4 \
-    --slurm
-
-
+    --input "/path-to-wsi/*.svs" \
+    --output_root "results/" \
+	--cp "lizard_convnextv2_large" \
+    --tta 4 
 ```
 
 # Cite

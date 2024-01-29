@@ -17,7 +17,7 @@ from src.constants import (
     MAX_THRESHS_PANNUKE,
     MAX_HOLE_SIZE,
 )
-from src.data_utils import center_crop, WholeSlideDataset, NpyDataset
+from src.data_utils import center_crop, WholeSlideDataset, NpyDataset, ImageDataset
 
 
 def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
@@ -108,7 +108,7 @@ def write(pinst_out, pcls_out, running_max, res, params):
     return pinst_out, pcls_out, running_max
 
 
-def work(tcrd, ds_coord, wsis, z, params):
+def work(tcrd, ds_coord, z, params):
     out_img = gen_tile_map(
         tcrd,
         ds_coord,
@@ -129,6 +129,17 @@ def work(tcrd, ds_coord, wsis, z, params):
         z=z,
         npy=params["npy"],
     )
+    if params["input_type"] == "img":
+        out_img = out_img[
+            :,
+            params["tile_size"] : -params["tile_size"],
+            params["tile_size"] : -params["tile_size"],
+        ]
+        out_cls = out_cls[
+            :,
+            params["tile_size"] : -params["tile_size"],
+            params["tile_size"] : -params["tile_size"],
+        ]
     best_min_threshs = MIN_THRESHS_PANNUKE if params["pannuke"] else MIN_THRESHS_LIZARD
     best_max_threshs = MAX_THRESHS_PANNUKE if params["pannuke"] else MAX_THRESHS_LIZARD
 
@@ -147,14 +158,7 @@ def work(tcrd, ds_coord, wsis, z, params):
         return (pred_inst, {}, 0, tcrd, skip)
     pred_inst = post_proc_inst(
         pred_inst,
-        wsis,
-        tcrd,
-        params["out_img_shape"][-2:],
         max_hole_size,
-        130,
-        params["pannuke"],
-        params["tile_size"],
-        params["overlap"],
     )
     pred_ct = make_ct(out_cls, pred_inst)
     del out_cls
@@ -440,14 +444,7 @@ def get_wsi(wsi_path, read_ds=32, pannuke=False, tile_size=256, padding_factor=0
 
 def post_proc_inst(
     pred_inst,
-    wsi_path,
-    coord,
-    full_shape,
     hole_size=50,
-    inten_max=130,
-    pannuke=False,
-    tile_size=256,
-    padding_factor=0.96875,
 ):
     pshp = pred_inst.shape
     pred_inst = np.asarray(pred_inst)
@@ -486,39 +483,6 @@ def post_proc_inst(
                 out_[sl] += (relabeled == new_lab) * i_
                 i_ += 1
     return out_
-    # after_cc = find_objects(out_)
-    # out = np.zeros(pshp, dtype=np.int32)
-    # i_ = 1
-    # if type(wsi_path).__module__ == np.__name__:
-    #     raw_ = wsi_path[coord[-1]]
-    # else:
-    #     # TODO, something is still wrong FIX THIS
-    #     raw_ = get_wsi(
-    #         wsi_path,
-    #         read_ds=16,
-    #         pannuke=pannuke,
-    #         tile_size=tile_size,
-    #         padding_factor=padding_factor,
-    #     )
-    #     scale_factor = np.array(raw_.shape[:2]) / np.array(
-    #         [full_shape[-1], full_shape[-2]]
-    #     )
-    #     coord_ = (np.array(coord) * scale_factor[[0, 0, 1, 1]]).astype(int)
-    #     raw_ = raw_[coord_[2] : coord_[3], coord_[0] : coord_[1]]
-    # raw = get_bg_filt(raw_, inten_max=inten_max)
-    # raw = cv2.resize(
-    #     raw.astype(np.uint8), (pshp[1], pshp[0]), interpolation=cv2.INTER_NEAREST
-    # ).astype(bool)
-    # # print(raw.shape, out.shape, raw_.shape)
-    # for i, sl in enumerate(after_cc):
-    #     i += 1
-    #     if sl:
-    #         roi_mult = raw[sl]
-    #         msk = out_[sl] == i
-    #         if roi_mult[msk].mean() > 0.5:
-    #             out[sl] += (out_[sl] == i) * i_
-    #             i_ += 1
-    # return out
 
 
 def get_bg_filt(raw, inten_max=130):
@@ -626,14 +590,23 @@ def get_shapes(params, nclasses):
     tile_size = params["tile_size"]
     params["npy"] = False
 
-    if params["p"].endswith(".npy"):
-        dataset = NpyDataset(
-            params["p"],
-            tile_size,
-            padding_factor=padding_factor,
-            ratio_object_thresh=0.3,
-            min_tiss=0.1,
-        )
+    if params["input_type"] in ["img", "npy"]:
+        if params["input_type"] == "npy":
+            dataset = NpyDataset(
+                params["p"],
+                tile_size,
+                padding_factor=padding_factor,
+                ratio_object_thresh=0.3,
+                min_tiss=0.1,
+            )
+        else:
+            dataset = ImageDataset(
+                params["p"],
+                params["tile_size"],
+                padding_factor=params["overlap"],
+                ratio_object_thresh=0.3,
+                min_tiss=0.1,
+            )
         ds_coord = np.array(dataset.idx).astype(int)
         shp = dataset.store.shape
 

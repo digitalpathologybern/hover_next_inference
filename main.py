@@ -25,12 +25,24 @@ def prepare_input(params):
     return input_list
 
 
+# modify this to support other image input types (supported by opencv)
+def get_input_type(params):
+    params["ext"] = os.path.splitext(params["p"])[-1]
+    if params["ext"] == ".npy":
+        params["input_type"] = "npy"
+    elif params["ext"] in [".jpg", ".png", ".jpeg", ".bmp"]:
+        params["input_type"] = "img"
+    else:
+        params["input_type"] = "wsi"
+    return params
+
+
 def main(params: dict):
     """
     Start nuclei segmentation and classification pipeline using specified parameters from argparse
     """
 
-    if params["metric"] not in ["mpq", "f1", "hd", "r2"]:
+    if params["metric"] not in ["mpq", "f1", "pannuke"]:
         params["metric"] = "f1"
         print("invalid metric, falling back to f1")
     else:
@@ -48,14 +60,15 @@ def main(params: dict):
     params, models, augmenter, color_aug_fn = get_inference_setup(params)
 
     input_list = prepare_input(params)
-    print("Running inference on", len(input_list), "images")
+    print("Running inference on", len(input_list), "file(s)")
 
-    for wsi in input_list:
+    for inp in input_list:
         start_time = timer()
-        params["p"] = wsi.rstrip()
+        params["p"] = inp.rstrip()
+        params = get_input_type(params)
         print("Processing ", params["p"])
         if params["cache"] is not None:
-            print("Caching WSI at:")
+            print("Caching input at:")
             params["p"] = copy_img(params["p"], params["cache"])
             print(params["p"])
 
@@ -65,19 +78,18 @@ def main(params: dict):
             timedelta(seconds=timer() - start_time),
         )
         process_timer = timer()
-        if params["slurm"]:
+        if params["only_inference"]:
             try:
                 z[0].store.close()
                 z[1].store.close()
             except TypeError:
                 # if z is None, z cannot be indexed -> throws a TypeError
                 pass
-            print("submitting slurm job for postprocessing")
+            print("Exiting after inference")
             sys.exit(0)
         # Stitch tiles together and postprocess to get instance segmentation
         if not os.path.exists(os.path.join(params["output_dir"], "pinst_pp.zip")):
             print("running post-processing")
-            print("save polygons", params["save_polygon"])
 
             z_pp = post_process_main(
                 params,
@@ -124,7 +136,9 @@ if __name__ == "__main__":
         help="comma separated list of checkpoint folders to consider",
     )
     parser.add_argument(
-        "--slurm", action="store_true", help="split inference to gpu and cpu node"
+        "--only_inference",
+        action="store_true",
+        help="split inference to gpu and cpu node/ only run inference",
     )
     parser.add_argument(
         "--metric", type=str, default="f1", help="metric to optimize for pp"
@@ -176,7 +190,7 @@ if __name__ == "__main__":
         "--pp_overlap",
         type=int,
         default=256,
-        help="overlap for postprocessing tiles, put to at least tile_size",
+        help="overlap for postprocessing tiles, put to around tile_size",
     )
     parser.add_argument(
         "--pp_workers",
