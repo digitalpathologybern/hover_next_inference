@@ -86,6 +86,10 @@ apptainer exec --nv /path-to-container/nuc_torch_v16.sif \
 	--cp "lizard_convnextv2_large" \
     --tta 4 
 ```
+# License
+
+This repository is licensed under GNU General Public License v3.0. 
+If you are intending to use this repository for commercial usecases, please check the licenses of all python packages referenced in the Setup section / described in the requirements.txt and environment.yml.
 
 # Cite
 
