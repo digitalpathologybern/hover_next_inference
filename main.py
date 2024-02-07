@@ -14,6 +14,7 @@ print(torch.cuda.device_count(), " cuda devices")
 
 
 def prepare_input(params):
+    print("input specified: ", params["input"])
     if params["input"].endswith(".txt"):
         if os.path.exists(params["input"]):
             with open(params["input"], "r") as f:
@@ -21,7 +22,7 @@ def prepare_input(params):
         else:
             raise FileNotFoundError("input file not found")
     else:
-        input_list = sorted(glob(params["input"]))
+        input_list = sorted(glob(params["input"].rstrip()))
     return input_list
 
 

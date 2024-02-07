@@ -165,6 +165,7 @@ def work(tcrd, ds_coord, z, params):
     gc.collect()
 
     processed = remove_obj_cls(pred_inst, pred_ct, best_min_threshs, best_max_threshs)
+    # TODO why is this here?
     pred_inst, pred_ct = processed
     max_inst = np.max(pred_inst)
     pred_inst = zarr.array(
@@ -485,10 +486,10 @@ def post_proc_inst(
     return out_
 
 
-def get_bg_filt(raw, inten_max=130):
-    raw_ = cv2.cvtColor(raw, cv2.COLOR_RGB2LAB)
-    bg_filt = (raw_[..., 0] < 245) & (raw_[..., 1] > inten_max) & (raw.mean(-1) > 0)
-    return bg_filt
+# def get_bg_filt(raw, inten_max=130):
+#     raw_ = cv2.cvtColor(raw, cv2.COLOR_RGB2LAB)
+#     bg_filt = (raw_[..., 0] < 245) & (raw_[..., 1] > inten_max) & (raw.mean(-1) > 0)
+#     return bg_filt
 
 
 def make_ct(pred_class, instance_map):
