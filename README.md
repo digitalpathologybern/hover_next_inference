@@ -105,12 +105,13 @@ FULL VALIDATION PAPER CURRENTLY UNDER REVIEW AT MIDL2024
 ```
 and
 ```
-@article{Rumberger2022PanopticSW,
-  title={Panoptic segmentation with highly imbalanced semantic labels},
-  author={Josef Lorenz Rumberger and Elias Baumann and Peter Hirsch and Dagmar Kainmueller},
-  journal={2022 IEEE International Symposium on Biomedical Imaging Challenges (ISBIC)},
+@INPROCEEDINGS{rumberger2022panoptic,
+  author={Rumberger, Josef Lorenz and Baumann, Elias and Hirsch, Peter and Janowczyk, Andrew and Zlobec, Inti and Kainmueller, Dagmar},
+  booktitle={2022 IEEE International Symposium on Biomedical Imaging Challenges (ISBIC)}, 
+  title={Panoptic segmentation with highly imbalanced semantic labels}, 
   year={2022},
+  volume={},
+  number={},
   pages={1-4},
-  url={https://api.semanticscholar.org/CorpusID:247596734}
-}
+  doi={10.1109/ISBIC56247.2022.9854551}}
 ```
