@@ -4,6 +4,8 @@ HoVer-NeXt is a fast and efficient nuclei segmentation and classification pipeli
 Supported are a variety of data formats, including all OpenSlide supported datatypes, `.npy` numpy array dumps, and common image formats such as JPEG and PNG.
 If you are having trouble with using this repository, please create an issue and we will be happy to help!
 
+For training code, please check the [hover-next training repository](https://github.com/digitalpathologybern/hover_next_train)
+
 ## Setup
 
 Environments for train and inference are the same so if you already have set the environment up for training, you can use it for inference as well.
