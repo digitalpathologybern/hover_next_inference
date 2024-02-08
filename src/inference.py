@@ -27,6 +27,27 @@ def inference_main(
     augmenter,
     color_aug_fn,
 ):
+    """
+    Inference function for a single input file.
+
+    Parameters
+    ----------
+    params: dict
+        Parameter store, defined in initial main
+    models: List[torch.nn.Module]
+        list of models to run inference with, e.g. multiple folds or a single model in a list
+    augmenter: SpatialAugmenter
+        Augmentation module for geometric transformations
+    color_aug_fn: torch.nn.Sequential
+        Color Augmentation module
+
+    Returns
+    ----------
+    params: dict
+        Parameter store, defined in initial main and modified by this function
+    z: Union(Tuple[zarr.ZipStore, zarr.ZipStore], None)
+        instance and class segmentation results as zarr stores, kept open for further processing. None if inference was skipped.
+    """
     print(repr(params["p"]))
     fn = params["p"].split(os.sep)[-1].split(params["ext"])[0]
     params["output_dir"] = os.path.join(params["output_root"], fn)
@@ -245,7 +266,9 @@ def batch_pseudolabel_ensemb(
 
 
 def get_inference_setup(params):
-    # get model/ models and load checkpoint
+    """
+    get model/ models and load checkpoint, create augmentation functions and set up parameters for inference
+    """
     models = []
     for pth in params["data_dirs"]:
         checkpoint_path = f"{pth}/train/best_model"

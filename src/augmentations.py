@@ -133,6 +133,13 @@ class HedNormalizeTorch(torch.nn.Module):
 class GaussianNoise(torch.nn.Module):
     """
     Pytorch augmentation module to apply gaussian noise
+
+    Parameters
+    ----------
+    sigma : float
+        sigma for uniform distribution to sample from
+    rank : str or int or torch.device
+        device to put the module to
     """
 
     def __init__(self, sigma, rank):

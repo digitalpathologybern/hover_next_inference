@@ -486,12 +486,6 @@ def post_proc_inst(
     return out_
 
 
-# def get_bg_filt(raw, inten_max=130):
-#     raw_ = cv2.cvtColor(raw, cv2.COLOR_RGB2LAB)
-#     bg_filt = (raw_[..., 0] < 245) & (raw_[..., 1] > inten_max) & (raw.mean(-1) > 0)
-#     return bg_filt
-
-
 def make_ct(pred_class, instance_map):
     if type(pred_class) != np.ndarray:
         pred_class = pred_class[:]

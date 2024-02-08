@@ -8,15 +8,27 @@ import PIL
 import pathlib
 from tqdm import tqdm
 import cv2
-import mahotas as mh
 from src.constants import LUT_MAGNIFICATION_MPP, LUT_MAGNIFICATION_X
 from shutil import copy2, copytree
 import os
 
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
 def copy_img(im_path, cache_dir):
+    """
+    Helper function to copy WSI to cache directory
+
+    Parameters
+    ----------
+    im_path : str
+        path to the WSI
+    cache_dir : str
+        path to the cache directory
+
+    Returns
+    -------
+    str
+        path to the copied WSI
+    """
     file, ext = os.path.splitext(im_path)
     if ext == ".mrxs":
         copy2(im_path, cache_dir)
@@ -28,7 +40,30 @@ def copy_img(im_path, cache_dir):
     return os.path.join(cache_dir, os.path.split(im_path)[-1])
 
 
-def normalize_min_max(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
+def normalize_min_max(x: np.ndarray, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
+    """
+    Min max scaling for input array
+
+    Parameters
+    ----------
+    x : np.ndarray
+        input array
+    mi : float or int
+        minimum value
+    ma : float or int
+        maximum value
+    clip : bool, optional
+        clip values be between 0 and 1, False by default
+    eps : float
+        epsilon value to avoid division by zero
+    dtype : type
+        data type of the output array
+
+    Returns
+    -------
+    np.ndarray
+        normalized array
+    """
     if mi is None:
         mi = np.min(x)
     if ma is None:
@@ -47,15 +82,17 @@ def normalize_min_max(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):
 
 
 def center_crop(t, croph, cropw):
+    """
+    Center crop input tensor in last two axes to height and width
+    """
     h, w = t.shape[-2:]
     startw = w // 2 - (cropw // 2)
     starth = h // 2 - (croph // 2)
     return t[..., starth : starth + croph, startw : startw + cropw]
 
 
-# Taken from https://github.com/christianabbet/SRA
-
-
+# Adapted from  https://github.com/christianabbet/SRA
+# Original Author: Christian Abbet
 class WholeSlideDataset(Dataset):
     def __init__(
         self,
@@ -103,11 +140,11 @@ class WholeSlideDataset(Dataset):
             If it is not possible to load the WSIs.
         Examples
         --------
-        Load a slide with tiling at different magnifications (20x, 10x, 5x) and sizes (224, 224, 244).
+        Load a slide at 40x with a crop size of 256px:
         >>> wsi = WholeSlideDataset(
-                path="/path/to/slide.svs/.mrxs",
-                crop_sizes_px=[224, 224, 224],
-                crop_magnifications=[20., 10., 5.],
+                path="/path/to/slide/.mrxs",
+                crop_sizes_px=[256],
+                crop_magnifications=[40.],
             )
         """
 
@@ -547,19 +584,35 @@ class NpyDataset(Dataset):
         crop_size_px,
         padding_factor=0.5,
         remove_bg=True,
-        remove_alpha=True,
         ratio_object_thresh=5e-1,
         min_tiss=0.1,
     ):
+        """
+        Torch Dataset to load from NPY files.
+
+        Parameters
+        ----------
+        path : str
+            Path to the NPY file.
+        crop_size_px : int
+            Size of the extracted tiles in pixels. e.g 256 -> 256x256 tiles
+        padding_factor : float, optional
+            Padding value when creating reference grid. Distance between two consecutive crops as a proportion of the
+            first listed crop size.
+        remove_bg : bool, optional
+            Remove background crops if their saturation value is above 5. Default value is True.
+        ratio_object_thresh : float, optional
+            Objects are removed if they are smaller than ratio*largest object
+        min_tiss : float, optional
+            Threshold value to consider a crop as tissue. Default value is 0.1.
+        """
         self.path = path
         self.crop_size_px = crop_size_px
         self.padding_factor = padding_factor
-        self.remove_alpha = remove_alpha
         self.ratio_object_thresh = ratio_object_thresh
         self.min_tiss = min_tiss
         self.remove_bg = remove_bg
         self.store = np.load(path)
-        # TODO, loading NPZ does not work, this only works with NPY
         if self.store.ndim == 3:
             self.store = self.store[np.newaxis, :]
         self.msks, self.fg_amount = self._foreground_mask()
@@ -567,7 +620,8 @@ class NpyDataset(Dataset):
         self.grid = self._calc_grid()
         self.idx = self._create_idx()
 
-        # TODO deal with exceptions :)
+        # TODO No idea what kind of exceptions could happen.
+        # If you are having issues with this dataloader, create an issue.
 
     def _foreground_mask(self, h_tresh=5):
         print("computing fg masks")
@@ -654,20 +708,38 @@ class NpyDataset(Dataset):
 
 
 class ImageDataset(NpyDataset):
+    """
+    Torch Dataset to load from NPY files.
+
+    Parameters
+    ----------
+    path : str
+        Path to the Image, needs to be supported by opencv
+    crop_size_px : int
+        Size of the extracted tiles in pixels. e.g 256 -> 256x256 tiles
+    padding_factor : float, optional
+        Padding value when creating reference grid. Distance between two consecutive crops as a proportion of the
+        first listed crop size.
+    remove_bg : bool, optional
+        Remove background crops if their saturation value is above 5. Default value is True.
+    ratio_object_thresh : float, optional
+        Objects are removed if they are smaller than ratio*largest object
+    min_tiss : float, optional
+        Threshold value to consider a crop as tissue. Default value is 0.1.
+    """
+
     def __init__(
         self,
         path,
         crop_size_px,
         padding_factor=0.5,
         remove_bg=True,
-        remove_alpha=True,
         ratio_object_thresh=5e-1,
         min_tiss=0.1,
     ):
         self.path = path
         self.crop_size_px = crop_size_px
         self.padding_factor = padding_factor
-        self.remove_alpha = remove_alpha
         self.ratio_object_thresh = ratio_object_thresh
         self.min_tiss = min_tiss
         self.remove_bg = remove_bg

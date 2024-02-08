@@ -1,14 +1,15 @@
 ### Size thresholds for nuclei (in pixels), pannuke is less conservative
 # These have been optimized for the conic challenge, but can be changed
 # to get more small nuclei (e.g. by setting all min_threshs to 0)
-MIN_THRESHS_LIZARD = [30, 30, 20, 20, 30, 30, 15]  # stick to best conic
-MAX_THRESHS_LIZARD = [5000, 5000, 5000, 5000, 5000, 5000, 5000]  # stick to best conic
-
+MIN_THRESHS_LIZARD = [30, 30, 20, 20, 30, 30, 15]
+MAX_THRESHS_LIZARD = [5000, 5000, 5000, 5000, 5000, 5000, 5000]
 MIN_THRESHS_PANNUKE = [10, 10, 10, 10, 10]
 MAX_THRESHS_PANNUKE = [20000, 20000, 20000, 3000, 10000]
 
+# Maximal size of holes to remove from a nucleus
 MAX_HOLE_SIZE = 128
 
+# Colors for geojson output
 COLORS_LIZARD = [
     [0, 255, 0],  # neu
     [255, 0, 0],  # epi
@@ -19,6 +20,15 @@ COLORS_LIZARD = [
     [255, 0, 255],  # mitosis
 ]
 
+COLORS_PANNUKE = [
+    [255, 0, 0],  # neo
+    [0, 127, 255],  # inf
+    [255, 179, 102],  # con
+    [0, 0, 0],  # dead
+    [0, 255, 0],  # epi
+]
+
+# text labels for lizard
 CLASS_LABELS_LIZARD = {
     "neutrophil": 1,
     "epithelial-cell": 2,
@@ -29,6 +39,7 @@ CLASS_LABELS_LIZARD = {
     "mitosis": 7,
 }
 
+# text labels for pannuke
 CLASS_LABELS_PANNUKE = {
     "neoplastic": 1,
     "inflammatory": 2,
@@ -37,6 +48,7 @@ CLASS_LABELS_PANNUKE = {
     "epithelial": 5,
 }
 
+# magnifiation and resolutions for WSI dataloader
 LUT_MAGNIFICATION_X = [10, 20, 40, 80]
 LUT_MAGNIFICATION_MPP = [0.97, 0.485, 0.2425, 0.124]
 

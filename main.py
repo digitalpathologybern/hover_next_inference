@@ -14,6 +14,15 @@ print(torch.cuda.device_count(), " cuda devices")
 
 
 def prepare_input(params):
+    """
+    Check if input is a text file, glob pattern, or a directory, and return a list of input files
+
+    Parameters
+    ----------
+    params: dict
+        input parameters from argparse
+
+    """
     print("input specified: ", params["input"])
     if params["input"].endswith(".txt"):
         if os.path.exists(params["input"]):
@@ -26,8 +35,16 @@ def prepare_input(params):
     return input_list
 
 
-# modify this to support other image input types (supported by opencv)
 def get_input_type(params):
+    """
+    Check if input is an image, numpy array, or whole slide image, and return the input type
+    If you are trying to process other images that are supported by opencv (e.g. tiff), you can add the extension to the list
+
+    Parameters
+    ----------
+    params: dict
+        input parameters from argparse
+    """
     params["ext"] = os.path.splitext(params["p"])[-1]
     if params["ext"] == ".npy":
         params["input_type"] = "npy"
@@ -41,6 +58,11 @@ def get_input_type(params):
 def main(params: dict):
     """
     Start nuclei segmentation and classification pipeline using specified parameters from argparse
+
+    Parameters
+    ----------
+    params: dict
+        input parameters from argparse
     """
 
     if params["metric"] not in ["mpq", "f1", "pannuke"]:

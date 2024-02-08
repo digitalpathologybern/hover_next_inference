@@ -11,6 +11,10 @@ import timm
 
 
 def load_checkpoint(model, cp_path, device):
+    """
+    load checkpoint and fix DataParallel/DistributedDataParallel
+    """
+
     cp = torch.load(cp_path, map_location=device)
     try:
         model.load_state_dict(cp["model_state_dict"])
@@ -30,6 +34,12 @@ def load_checkpoint(model, cp_path, device):
 
 
 class TimmEncoderFixed(nn.Module):
+    """
+    Modified version of timm encoder.
+    Original from: https://github.com/huggingface/pytorch-image-models
+
+    """
+
     def __init__(
         self,
         name,
@@ -75,35 +85,23 @@ class TimmEncoderFixed(nn.Module):
         return min(self._output_stride, 2**self._depth)
 
 
-def get_timm_encoder(
-    name,
-    in_channels=3,
-    depth=5,
-    weights=False,
-    output_stride=32,
-    drop_rate=0.5,
-    drop_path_rate=0.25,
-):
-    name = name.replace("tu-", "")
-    encoder = TimmEncoderFixed(
-        name, weights, in_channels, depth, output_stride, drop_rate, drop_path_rate
-    )
-    return encoder
-
-
 def get_model(
-    enc="tu-dm_nfnet_f5", out_channels_cls=8, out_channels_inst=5, pretrained=True
+    enc="convnextv2_tiny.fcmae_ft_in22k_in1k",
+    out_channels_cls=8,
+    out_channels_inst=5,
+    pretrained=True,
 ):
     depth = 4 if "next" in enc else 5
-    encoder = get_timm_encoder(
+    encoder = TimmEncoderFixed(
         name=enc,
+        weights=pretrained,
         in_channels=3,
         depth=depth,
-        weights=pretrained,
         output_stride=32,
         drop_rate=0.5,
         drop_path_rate=0.0,
     )
+
     decoder_channels = (256, 128, 64, 32, 16)[:depth]
     decoder_inst = UnetDecoder(
         encoder_channels=encoder.out_channels,
