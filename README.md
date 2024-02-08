@@ -110,8 +110,6 @@ and
   booktitle={2022 IEEE International Symposium on Biomedical Imaging Challenges (ISBIC)}, 
   title={Panoptic segmentation with highly imbalanced semantic labels}, 
   year={2022},
-  volume={},
-  number={},
   pages={1-4},
   doi={10.1109/ISBIC56247.2022.9854551}}
 ```
