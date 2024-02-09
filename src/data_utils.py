@@ -6,7 +6,6 @@ from typing import Optional, List, Tuple, Callable
 from skimage.morphology import remove_small_objects, disk, dilation
 import PIL
 import pathlib
-from tqdm import tqdm
 import cv2
 from src.constants import LUT_MAGNIFICATION_MPP, LUT_MAGNIFICATION_X
 from shutil import copy2, copytree
@@ -615,6 +614,18 @@ class NpyDataset(Dataset):
         self.store = np.load(path)
         if self.store.ndim == 3:
             self.store = self.store[np.newaxis, :]
+        self.orig_shape = self.store.shape
+        self.store = np.pad(
+            self.store,
+            [
+                (0, 0),
+                (self.crop_size_px, self.crop_size_px),
+                (self.crop_size_px, self.crop_size_px),
+                (0, 0),
+            ],
+            "constant",
+            constant_values=255,
+        )
         self.msks, self.fg_amount = self._foreground_mask()
 
         self.grid = self._calc_grid()
@@ -624,10 +635,10 @@ class NpyDataset(Dataset):
         # If you are having issues with this dataloader, create an issue.
 
     def _foreground_mask(self, h_tresh=5):
-        print("computing fg masks")
+        # print("computing fg masks")
         ret = []
         fg_amount = []
-        for im in tqdm(self.store):
+        for im in self.store:
             msk = (
                 cv2.blur(cv2.cvtColor(im, cv2.COLOR_RGB2HSV)[..., 1], (50, 50))
                 > h_tresh
@@ -755,7 +766,7 @@ class ImageDataset(NpyDataset):
                 (0, 0),
             ],
             "constant",
-            constant_values=0,
+            constant_values=255,
         )
         self.msks, self.fg_amount = self._foreground_mask()
         self.grid = self._calc_grid()

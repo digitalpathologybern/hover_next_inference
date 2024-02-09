@@ -22,7 +22,7 @@ or use predefined [docker/singularity container](#docker-and-apptainersingularit
 
 ## Model Weights
 
-Weights are hosted on Zenodo URL:
+Weights are hosted on [Zenodo](https://zenodo.org/records/10635618)
 
 ## WSI Inference
 

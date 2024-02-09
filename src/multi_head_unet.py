@@ -94,7 +94,7 @@ def get_model(
     depth = 4 if "next" in enc else 5
     encoder = TimmEncoderFixed(
         name=enc,
-        weights=pretrained,
+        pretrained=pretrained,
         in_channels=3,
         depth=depth,
         output_stride=32,

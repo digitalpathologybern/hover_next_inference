@@ -6,7 +6,7 @@ from src.post_process_utils import (
     get_tile_coords,
 )
 from src.viz_utils import create_tsvs, create_polygon_output
-from src.data_utils import NpyDataset
+from src.data_utils import NpyDataset, ImageDataset
 from typing import List, Tuple
 import zarr
 from numcodecs import Blosc
@@ -46,29 +46,21 @@ def post_process_main(
         params["out_img_shape"],
         params["pp_tiling"],
         pad_size=params["pp_overlap"],
-        npy=params["npy"],
+        npy=params["input_type"] != "wsi",
     )
-    if params["npy"]:
-        wsis = NpyDataset(
-            params["p"],
-            params["tile_size"],
-            padding_factor=params["overlap"],
-            ratio_object_thresh=0.5,
-            min_tiss=0.1,
-        ).store
-        pinst_out = zarr.zeros(
-            shape=(params["out_img_shape"][0], *params["out_img_shape"][-2:]),
-            dtype="i4",
-            compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.SHUFFLE),
-        )
-
-    else:
-        wsis = params["p"]
+    if params["input_type"] == "wsi":
         pinst_out = zarr.zeros(
             shape=(
                 params["out_img_shape"][-1],
                 params["out_img_shape"][-2],
             ),
+            dtype="i4",
+            compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.SHUFFLE),
+        )
+
+    else:
+        pinst_out = zarr.zeros(
+            shape=(params["orig_shape"][0], *params["orig_shape"][-2:]),
             dtype="i4",
             compressor=Blosc(cname="lz4", clevel=3, shuffle=Blosc.SHUFFLE),
         )
@@ -87,20 +79,19 @@ def post_process_main(
         )
     executor.shutdown(wait=False)
 
-    print("saving final output")
+
     if params["output_dir"] is not None:
+        print("saving final output")
         zarr.save(os.path.join(params["output_dir"], "pinst_pp.zip"), pinst_out)
-    z_pp = pinst_out
+        print("storing class dictionary...")
+        with open(os.path.join(params["output_dir"], "class_inst.json"), "w") as fp:
+            json.dump(pcls_out, fp)
 
-    print("storing class dictionary...")
-    with open(os.path.join(params["output_dir"], "class_inst.json"), "w") as fp:
-        json.dump(pcls_out, fp)
-
-    if not params["npy"]:
-        print("saving qupath coordinates...")
-        create_tsvs(pcls_out, params)
-        # TODO this is still broken
-        if params["save_polygon"]:
-            create_polygon_output(pinst_out, pcls_out, params["output_dir"], params)
-
-    return z_pp
+        if params["input_type"] == "wsi":
+            print("saving geojson coordinates for qupath...")
+            create_tsvs(pcls_out, params)
+            # TODO this is way to slow for large images
+            if params["save_polygon"]:
+                create_polygon_output(pinst_out, pcls_out, params["output_dir"], params)
+   
+    return pinst_out

@@ -47,11 +47,16 @@ def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
 def write(pinst_out, pcls_out, running_max, res, params):
     pinst_, pcls_, max_, t_, skip = res
     if not skip:
-        if params["npy"]:
+        if params["input_type"] != "wsi":
             pinst_[pinst_ != 0] += running_max
             pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
+            props = [(p.label, p.centroid) for p in regionprops(pinst_)]
+            pcls_new = {}
+            for id_, cen in props:
+                pcls_new[str(id_)] = (pcls_[str(id_)], (t_[-1],cen[0],cen[1]))
+            
             running_max += max_
-            pcls_out |= pcls_
+            pcls_out |= pcls_new
             pinst_out[t_[-1]] = np.asarray(pinst_, dtype=np.int32)
 
         else:
@@ -117,7 +122,7 @@ def work(tcrd, ds_coord, z, params):
         which="_inst",
         dim=params["out_img_shape"][-3],
         z=z,
-        npy=params["npy"],
+        npy=params["input_type"] != "wsi",
     )
     out_cls = gen_tile_map(
         tcrd,
@@ -127,9 +132,9 @@ def work(tcrd, ds_coord, z, params):
         which="_cls",
         dim=params["out_cls_shape"][-3],
         z=z,
-        npy=params["npy"],
+        npy=params["input_type"] != "wsi",
     )
-    if params["input_type"] == "img":
+    if params["input_type"] != "wsi":
         out_img = out_img[
             :,
             params["tile_size"] : -params["tile_size"],
@@ -583,7 +588,7 @@ def get_pp_params(params, mit_eval=False):
 def get_shapes(params, nclasses):
     padding_factor = params["overlap"]
     tile_size = params["tile_size"]
-    params["npy"] = False
+    
 
     if params["input_type"] in ["img", "npy"]:
         if params["input_type"] == "npy":
@@ -602,6 +607,7 @@ def get_shapes(params, nclasses):
                 ratio_object_thresh=0.3,
                 min_tiss=0.1,
             )
+        params["orig_shape"] = dataset.orig_shape[:-1]
         ds_coord = np.array(dataset.idx).astype(int)
         shp = dataset.store.shape
 
@@ -610,7 +616,6 @@ def get_shapes(params, nclasses):
         ds_coord[:, 1:] += coord_adj
         out_img_shape = (shp[0], 2, shp[1], shp[2])
         out_cls_shape = (shp[0], nclasses, shp[1], shp[2])
-        params["npy"] = True
     else:
         level = 40 if params["pannuke"] else 20
         dataset = WholeSlideDataset(
