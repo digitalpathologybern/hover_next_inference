@@ -24,6 +24,14 @@ or use predefined [docker/singularity container](#docker-and-apptainersingularit
 
 Weights are hosted on [Zenodo](https://zenodo.org/records/10635618)
 
+| Dataset      | Encoder   |
+|--------------|-----------|
+| Lizard-Mitosis | [Large](https://zenodo.org/records/10635618/files/lizard_convnextv2_large.zip?download=1)     |
+| Lizard-Mitosis | [Base](https://zenodo.org/records/10635618/files/lizard_convnextv2_base.zip?download=1)      |
+| Lizard-Mitosis | [Tiny](https://zenodo.org/records/10635618/files/lizard_convnextv2_tiny.zip?download=1)      |
+| PanNuke | Tiny Fold [1](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_1.zip?download=1) [2](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_2.zip?download=1) [3](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_3.zip?download=1)   |
+
+
 ## WSI Inference
 
 This pipeline uses OpenSlide to read images, and therefore supports all formats which are supported by OpenSlide. 
