@@ -31,8 +31,8 @@ By specifying one of the ID's listed, weights are **automatically** downloaded a
 |  | "lizard_convnextv2_base" |[Base](https://zenodo.org/records/10635618/files/lizard_convnextv2_base.zip?download=1)      |
 |  | "lizard_convnextv2_tiny" |[Tiny](https://zenodo.org/records/10635618/files/lizard_convnextv2_tiny.zip?download=1)      |
 | PanNuke | "pannuke_convnextv2_tiny_1"  | [Tiny Fold 1](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_1.zip?download=1) |
-| PanNuke | "pannuke_convnextv2_tiny_2"  | [Tiny Fold 2](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_2.zip?download=1) |
-| PanNuke | "pannuke_convnextv2_tiny_3"  | [Tiny Fold 3](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_3.zip?download=1) |
+|   | "pannuke_convnextv2_tiny_2"  | [Tiny Fold 2](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_2.zip?download=1) |
+|   | "pannuke_convnextv2_tiny_3"  | [Tiny Fold 3](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_3.zip?download=1) |
 
 If you are manually downloading weights, unzip them in the directory, such that the folder (e.g. ```lizard_convnextv2_large```) sits in the same directory as ```main.py```.
 
