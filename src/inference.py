@@ -1,25 +1,25 @@
 import os
 import copy
+import toml
+import requests
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from typing import List, Union, Tuple
 import torch
 import numpy as np
 import zarr
-from zipfile import BadZipFile
+import zipfile
 from numcodecs import Blosc
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from scipy.special import softmax
 from src.multi_head_unet import get_model, load_checkpoint
 from src.data_utils import WholeSlideDataset, NpyDataset, ImageDataset
 from src.augmentations import color_augmentations
 from src.spatial_augmenter import SpatialAugmenter
-from src.constants import TTA_AUG_PARAMS
-import toml
+from src.constants import TTA_AUG_PARAMS, VALID_WEIGHTS
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
 def inference_main(
     params: dict,
@@ -74,7 +74,7 @@ def inference_main(
             z_cls = zarr.open(params["model_out_p"] + "_cls.zip", mode="r")
             print("Inference already completed", z_inst.shape, z_cls.shape)
             return params, (z_inst, z_cls)
-        except (KeyError, BadZipFile):
+        except (KeyError, zipfile.BadZipFile):
             z_inst = None
             z_cls = None
             print(
@@ -271,6 +271,9 @@ def get_inference_setup(params):
     """
     models = []
     for pth in params["data_dirs"]:
+        if not os.path.exists(pth):
+            pth = download_weights(os.path.split(pth)[-1])               
+
         checkpoint_path = f"{pth}/train/best_model"
         mod_params = toml.load(f"{pth}/params.toml")
         params["out_channels_cls"] = mod_params["out_channels_cls"]
@@ -298,3 +301,25 @@ def get_inference_setup(params):
     )
 
     return params, models, augmenter, color_aug_fn
+
+def download_weights(model_code):
+    if model_code in VALID_WEIGHTS:
+        url = f"https://zenodo.org/records/10635618/files/{model_code}.zip"
+        print("downloading",model_code,"weights to",os.getcwd())
+        try:
+            response = requests.get(url, stream=True, timeout=15.0)
+        except requests.exceptions.Timeout:
+            print("Timeout")
+        total_size = int(response.headers.get("content-length", 0))
+        block_size = 1024  # 1 Kibibyte
+        with tqdm(total=total_size, unit="iB", unit_scale=True) as t:
+            with open("cache.zip", "wb") as f:
+                for data in response.iter_content(block_size):
+                    t.update(len(data))
+                    f.write(data)
+        with zipfile.ZipFile("cache.zip", "r") as zip:
+            zip.extractall("")
+        os.remove("cache.zip")
+        return model_code
+    else:
+        raise ValueError("Model id not found in valid identifiers, please make select one of", VALID_WEIGHTS)

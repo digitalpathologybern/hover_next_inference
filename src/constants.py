@@ -65,3 +65,13 @@ TTA_AUG_PARAMS = {
     "shear": {"max_percent": 0.1, "prob": 0.0},
     "elastic": {"alpha": [120, 120], "sigma": 8, "prob": 0.0},
 }
+
+# current valid pre-trained weights to be automatically downloaded and used in HoVer-NeXt
+VALID_WEIGHTS = [
+    "lizard_convnextv2_large",
+    "lizard_convnextv2_base",
+    "lizard_convnextv2_tiny",
+    "pannuke_convnextv2_tiny_1",
+    "pannuke_convnextv2_tiny_2",
+    "pannuke_convnextv2_tiny_3",
+]

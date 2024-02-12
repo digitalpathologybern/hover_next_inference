@@ -23,14 +23,16 @@ or use predefined [docker/singularity container](#docker-and-apptainersingularit
 ## Model Weights
 
 Weights are hosted on [Zenodo](https://zenodo.org/records/10635618)
+By specifying one of the ID's listed, weights are **automatically** downloaded and loaded. 
 
-| Dataset      | Encoder   |
-|--------------|-----------|
-| Lizard-Mitosis | [Large](https://zenodo.org/records/10635618/files/lizard_convnextv2_large.zip?download=1)     |
-| Lizard-Mitosis | [Base](https://zenodo.org/records/10635618/files/lizard_convnextv2_base.zip?download=1)      |
-| Lizard-Mitosis | [Tiny](https://zenodo.org/records/10635618/files/lizard_convnextv2_tiny.zip?download=1)      |
-| PanNuke | Tiny Fold [1](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_1.zip?download=1) [2](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_2.zip?download=1) [3](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_3.zip?download=1)   |
+| Dataset      | ID | Encoder |
+|--------------|--------|-----|
+| Lizard-Mitosis |   "lizard_convnextv2_large"   | [Large](https://zenodo.org/records/10635618/files/lizard_convnextv2_large.zip?download=1) |
+|  | "lizard_convnextv2_base" |[Base](https://zenodo.org/records/10635618/files/lizard_convnextv2_base.zip?download=1)      |
+|  | "lizard_convnextv2_tiny" |[Tiny](https://zenodo.org/records/10635618/files/lizard_convnextv2_tiny.zip?download=1)      |
+| PanNuke | "pannuke_convnextv2_tiny_1"   | Tiny Fold [1](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_1.zip?download=1) [2](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_2.zip?download=1) [3](https://zenodo.org/records/10635618/files/pannuke_convnextv2_tiny_3.zip?download=1)   |
 
+If you are manually downloading weights, unzip them in the directory, such that the folder (e.g. ```lizard_convnextv2_large```) sits in the same directory as ```main.py```.
 
 ## WSI Inference
 
@@ -90,12 +92,12 @@ sample_analysis.ipynb shows exemplarily how to use the files.
 
 ## Docker and Apptainer/Singularity Container:
 
-Download the singularity image from here: [TODO]
+Download the singularity image from [Zenodo](https://zenodo.org/records/10649470/files/hover_next.sif)
 
 ```bash
 # don't forget to mount your local directory
 export APPTAINER_BINDPATH="/storage"
-apptainer exec --nv /path-to-container/nuc_torch_v16.sif \
+apptainer exec --nv /path-to-container/hover_next.sif \
     python3 /path-to-repo/main.py \
     --input "/path-to-wsi/*.svs" \
     --output_root "results/" \
