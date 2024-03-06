@@ -1,0 +1,60 @@
+name: Build and Check
+# This specifies when the workflow should run. It's set to trigger on any push
+# and any pull request to the main branch.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# This ensures that only the latest run for a given branch or workflow is active,
+# canceling any in-progress runs if a new one is triggered.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Defines the job called 'build'.
+jobs:
+  build:
+    # Specifies the type of runner that the job will execute on.
+    runs-on: ubuntu-latest
+
+    # A matrix to run jobs across multiple versions of Python.
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, 3.10.13, 3.11, 3.12.2]
+
+    # Steps define a sequence of tasks that will be executed as part of the job.
+    steps:
+    # Checks-out repository under $GITHUB_WORKSPACE, so the workflow can access it.
+    - uses: actions/checkout@v3
+
+    # Sets up a Python environment with the version specified in the matrix,
+    # allowing the workflow to execute actions with Python.
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    # Installs the necessary dependencies to build and check the Python package.
+    # Includes pip, wheel, twine, and the build module.
+    - name: Install dependencies
+      run: python -m pip install --upgrade pip wheel twine build
+
+    # Builds the package using the Python build module, which creates both source
+    # distribution and wheel distribution files in the dist/ directory.
+    - name: Build package
+      run: python -m build
+
+    # Uses Twine to check the built packages (.whl files) in the dist/ directory,
+    # ensuring compliance with PyPI standards.
+    - name: Check package
+      run: twine check --strict dist/*.whl
+
+    # Uploads the built wheel files as artifacts, which can be downloaded
+    # after the workflow run completes.
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: wheels
+        path: dist/*.whl
