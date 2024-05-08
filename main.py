@@ -109,7 +109,7 @@ def main(params: dict):
                 # if z is None, z cannot be indexed -> throws a TypeError
                 pass
             print("Exiting after inference")
-            sys.exit(0)
+            sys.exit(2)
         # Stitch tiles together and postprocess to get instance segmentation
         if not os.path.exists(os.path.join(params["output_dir"], "pinst_pp.zip")):
             print("running post-processing")
@@ -135,6 +135,7 @@ def main(params: dict):
         if z_pp is not None:
             z_pp.store.close()
     print("done")
+    sys.exit(0)
 
 
 if __name__ == "__main__":

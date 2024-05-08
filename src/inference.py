@@ -84,8 +84,10 @@ def inference_main(
     z_inst = None
     z_cls = None
 
-    if device == "cpu":
-        print("running inference on cpu, please verify that this is intended")
+    if not torch.cuda.is_available():
+        print("trying to run inference on CPU, aborting...")
+        print("if this is intended, remove this check")
+        raise Exception("No GPU available")
 
     # create datasets from specified input
 
