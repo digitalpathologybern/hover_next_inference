@@ -6,6 +6,8 @@ If you are having trouble with using this repository, please create an issue and
 
 For training code, please check the [hover-next training repository](https://github.com/digitalpathologybern/hover_next_train)
 
+Find the Publication here: [https://openreview.net/pdf?id=3vmB43oqIO](https://openreview.net/pdf?id=3vmB43oqIO)
+
 ## Setup
 
 Environments for train and inference are the same so if you already have set the environment up for training, you can use it for inference as well.
@@ -115,7 +117,12 @@ If you are intending to use this repository for commercial usecases, please chec
 
 If you are using this code, please cite:
 ```
-FULL VALIDATION PAPER CURRENTLY UNDER REVIEW AT MIDL2024
+@inproceedings{baumann2024hover,
+  title={HoVer-NeXt: A Fast Nuclei Segmentation and Classification Pipeline for Next Generation Histopathology},
+  author={Baumann, Elias and Dislich, Bastian and Rumberger, Josef Lorenz and Nagtegaal, Iris D and Martinez, Maria Rodriguez and Zlobec, Inti},
+  booktitle={Medical Imaging with Deep Learning},
+  year={2024}
+}
 ```
 and
 ```
