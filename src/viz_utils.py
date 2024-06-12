@@ -18,6 +18,8 @@ from src.constants import (
 
 def create_geojson(polygons, classids, lookup, result_dir):
     features = []
+    if isinstance(classids[0], (list, tuple)):
+        classids = [cid[0] for cid in classids]
     for i, (poly, cid) in enumerate(zip(polygons, classids)):
         poly = np.array(poly)
         poly = poly[:, [1, 0]]
