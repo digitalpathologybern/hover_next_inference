@@ -200,3 +200,10 @@ pannuke_convnextv2_tiny_3/*
 sample/*
 testo.py
 test_out.csv
+cpu_pp_pannuke_debug.sh
+run_inference_container_pannuke_debug.sh
+run_mit_inference.sh
+sample_cls.bmp
+sample_cls.jpg
+sample_he.jpg
+testo.sh
