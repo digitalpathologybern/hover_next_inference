@@ -16,6 +16,8 @@ from src.constants import (
     MAX_THRESHS_LIZARD,
     MAX_THRESHS_PANNUKE,
     MAX_HOLE_SIZE,
+    LUT_MAGNIFICATION_MPP,
+    LUT_MAGNIFICATION_X,
 )
 from src.data_utils import center_crop, WholeSlideDataset, NpyDataset, ImageDataset
 
@@ -53,8 +55,8 @@ def write(pinst_out, pcls_out, running_max, res, params):
             props = [(p.label, p.centroid) for p in regionprops(pinst_)]
             pcls_new = {}
             for id_, cen in props:
-                pcls_new[str(id_)] = (pcls_[str(id_)], (t_[-1],cen[0],cen[1]))
-            
+                pcls_new[str(id_)] = (pcls_[str(id_)], (t_[-1], cen[0], cen[1]))
+
             running_max += max_
             pcls_out |= pcls_new
             pinst_out[t_[-1]] = np.asarray(pinst_, dtype=np.int32)
@@ -588,8 +590,7 @@ def get_pp_params(params, mit_eval=False):
 def get_shapes(params, nclasses):
     padding_factor = params["overlap"]
     tile_size = params["tile_size"]
-    
-
+    ds_factor = 1
     if params["input_type"] in ["img", "npy"]:
         if params["input_type"] == "npy":
             dataset = NpyDataset(
@@ -639,15 +640,25 @@ def get_shapes(params, nclasses):
         ds_coord -= np.array([bounds_x, bounds_y])
 
         ccrop = int(tile_size * padding_factor)
-        if (not params["pannuke"]) & (abs(dataset.mpp - 0.2425) < 0.05):
-            ds_coord /= 2
+        rel_res = np.isclose(dataset.mpp, LUT_MAGNIFICATION_MPP, rtol=0.05)
+        if sum(rel_res) != 1:
+            raise NotImplementedError(
+                "Currently no support for images with this resolution. Check src.constants in LUT_MAGNIFICATION_MPP and LUT_MAGNIFICATION_X to add the resultion - downsampling pair"
+            )
+        else:
+            ds_factor = LUT_MAGNIFICATION_X[rel_res.argmax()] / level
+            if ds_factor < 1:
+                raise NotImplementedError(
+                    "The specified model does not support images at this resolution. Consider supplying a higher resolution image"
+                )
+            ds_coord /= ds_factor
 
         ds_coord += (tile_size - ccrop) // 2
         ds_coord = ds_coord.astype(int)
         h, w = np.max(ds_coord, axis=0)
         out_img_shape = (2, int(h + ccrop), int(w + ccrop))
         out_cls_shape = (nclasses, int(h + ccrop), int(w + ccrop))
-
+    params["ds_factor"] = ds_factor
     params["out_img_shape"] = out_img_shape
     params["out_cls_shape"] = out_cls_shape
     params["ccrop"] = ccrop

@@ -14,13 +14,13 @@ from src.constants import (
 )
 
 
-def create_geojson(polygons, classids, lookup, result_dir):
+def create_geojson(polygons, classids, lookup, params):
     features = []
     if isinstance(classids[0], (list, tuple)):
         classids = [cid[0] for cid in classids]
     for i, (poly, cid) in enumerate(zip(polygons, classids)):
         poly = np.array(poly)
-        poly = poly[:, [1, 0]]
+        poly = poly[:, [1, 0]] * params["ds_factor"]
         poly = poly.tolist()
         # poly.append(poly[0])
         feature = geojson.Feature(
@@ -36,25 +36,11 @@ def create_geojson(polygons, classids, lookup, result_dir):
         )
         features.append(feature)
     feature_collection = geojson.FeatureCollection(features)
-    with open(result_dir + "/poly.geojson", "w") as outfile:
+    with open(params["output_dir"] + "/poly.geojson", "w") as outfile:
         geojson.dump(feature_collection, outfile)
 
 
 def create_tsvs(pcls_out, params):
-    sl = openslide.open_slide(params["p"])
-    sl_info = get_openslide_info(sl)
-    sl.close()
-    target_mpp = PANNUKE_MPP if params["pannuke"] else CONIC_MPP
-    if target_mpp < np.max(sl_info["level_mpp_x"]):
-        optimal_level = np.nonzero(
-            np.array(sl_info["level_mpp_x"]) <= (target_mpp * 1.1)
-        )[0][-1]
-    else:
-        optimal_level = 0
-    downsample = sl_info["level_downsamples"][optimal_level]
-    scaling_factor = np.around(target_mpp / sl_info["level_mpp_x"][optimal_level])
-    downsample *= scaling_factor if scaling_factor > 1 else 1
-
     pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
 
     coord_array = np.array([[i[0], *i[1]] for i in pcls_out.values()])
@@ -68,9 +54,9 @@ def create_tsvs(pcls_out, params):
         textfile.write("x" + "\t" + "y" + "\t" + "name" + "\t" + "color" + "\n")
         textfile.writelines(
             [
-                str(element[2] * downsample)
+                str(element[2] * params["ds_factor"])
                 + "\t"
-                + str(element[1] * downsample)
+                + str(element[1] * params["ds_factor"])
                 + "\t"
                 + pt
                 + "\t"
@@ -111,7 +97,7 @@ def cont(x):
     return cont
 
 
-def create_polygon_output(pinst, pcls_out, result_dir, params):
+def create_polygon_output(pinst, pcls_out, params):
     # polygon output is slow and unwieldy, TODO
     pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
     # whole slide regionprops could be avoided to speed up this process...
@@ -125,5 +111,5 @@ def create_polygon_output(pinst, pcls_out, result_dir, params):
         res_poly,
         class_labels,
         dict((v, k) for k, v in pred_keys.items()),
-        result_dir,
+        params,
     )
