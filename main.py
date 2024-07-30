@@ -189,7 +189,7 @@ if __name__ == "__main__":
         "--overlap",
         type=float,
         default=0.96875,
-        help="overlap between tiles, for conic, 0.96875 is best, for pannuke use 0.9375 for better results",
+        help="overlap between tiles, at 0.5mpp, 0.96875 is best, for 0.25mpp use 0.9375 for better results",
     )
     parser.add_argument(
         "--inf_workers",

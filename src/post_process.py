@@ -79,7 +79,6 @@ def post_process_main(
         )
     executor.shutdown(wait=False)
 
-
     if params["output_dir"] is not None:
         print("saving final output")
         zarr.save(os.path.join(params["output_dir"], "pinst_pp.zip"), pinst_out)
@@ -92,6 +91,6 @@ def post_process_main(
             create_tsvs(pcls_out, params)
             # TODO this is way to slow for large images
             if params["save_polygon"]:
-                create_polygon_output(pinst_out, pcls_out, params["output_dir"], params)
-   
+                create_polygon_output(pinst_out, pcls_out, params)
+
     return pinst_out
