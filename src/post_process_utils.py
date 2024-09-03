@@ -50,7 +50,7 @@ def write(pinst_out, pcls_out, running_max, res, params):
     pinst_, pcls_, max_, t_, skip = res
     if not skip:
         if params["input_type"] != "wsi":
-            pinst_[pinst_ != 0] += running_max
+            pinst_.vindex[pinst_[:] != 0] += running_max
             pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
             props = [(p.label, p.centroid) for p in regionprops(pinst_)]
             pcls_new = {}
