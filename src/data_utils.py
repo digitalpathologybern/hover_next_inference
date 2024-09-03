@@ -614,6 +614,9 @@ class NpyDataset(Dataset):
         self.store = np.load(path)
         if self.store.ndim == 3:
             self.store = self.store[np.newaxis, :]
+        if self.store.dtype != np.uint8:
+            print("converting input dtype to uint8")
+            self.store = self.store.astype(np.uint8)
         self.orig_shape = self.store.shape
         self.store = np.pad(
             self.store,
