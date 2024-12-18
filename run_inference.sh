@@ -1,0 +1,1 @@
+python3 main.py --input "/mnt/lustre-grete/usr/u12649/scratch/data/test/cpm15/loaded_dataset/complete_dataset/eval_split/test_images/*" --output_root /mnt/lustre-grete/usr/u12649/scratch/models/hovernext/inference --tile_size 512 --cp pannuke_convnextv2_tiny_2

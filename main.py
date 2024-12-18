@@ -48,7 +48,7 @@ def get_input_type(params):
     params["ext"] = os.path.splitext(params["p"])[-1]
     if params["ext"] == ".npy":
         params["input_type"] = "npy"
-    elif params["ext"] in [".jpg", ".png", ".jpeg", ".bmp"]:
+    elif params["ext"] in [".jpg", ".png", ".jpeg", ".bmp", ".tiff"]:
         params["input_type"] = "img"
     else:
         params["input_type"] = "wsi"
@@ -194,7 +194,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--inf_workers",
         type=int,
-        default=4,
+        default=16,
         help="number of workers for inference dataloader, maximally set this to number of cores",
     )
     parser.add_argument(

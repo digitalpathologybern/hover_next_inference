@@ -10,7 +10,7 @@ import cv2
 from src.constants import LUT_MAGNIFICATION_MPP, LUT_MAGNIFICATION_X
 from shutil import copy2, copytree
 import os
-
+import imageio
 
 def copy_img(im_path, cache_dir):
     """
@@ -776,7 +776,10 @@ class ImageDataset(NpyDataset):
         self.idx = self._create_idx()
 
     def _load_image(self):
-        img = cv2.imread(self.path)
+        img_io = imageio.imread(self.path)
+        uintimg = img_io.astype(np.uint8)
+        img = cv2.cvtColor(uintimg, cv2.COLOR_RGB2BGR)        
+        print(img.shape)
         if img.shape[-1] == 4:
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
         elif img.shape[-1] == 3:
