@@ -10,6 +10,7 @@ import cv2
 from src.constants import LUT_MAGNIFICATION_MPP, LUT_MAGNIFICATION_X
 from shutil import copy2, copytree
 import os
+from pylibCZIrw import czi as pyczi
 
 
 def copy_img(im_path, cache_dir):
@@ -90,6 +91,89 @@ def center_crop(t, croph, cropw):
     return t[..., starth : starth + croph, startw : startw + cropw]
 
 
+class czi_wrapper:
+    def __init__(self, path, levels=11, sharpen_img=True):
+        """
+        Wrapper to load czi files without openslide, but with the same endpoints
+
+        Parameters
+        ------------
+        path: str
+            Path to the wsi (.czi)
+        levels: int, optional
+            number of artificially created levels
+        sharpen_img: bool, optional
+            whether to sharpen the image (cohort dependent)
+
+        Examples
+        -----------
+        Use as a replacement for openslide.open_slide:
+        >>> sl = czi_wrapper(path)
+        >>> sl.read_region(...)
+        """
+        self.path = path
+        self.levels = levels
+        self.sharpen_img = sharpen_img
+        self.level_dimensions = None
+        self.level_downsamples = None
+        self.properties = {}
+        self.associated_images = {}
+        try:
+            self._generate_dictionaries()
+        except:
+            raise RuntimeError(f"issue with {self.path}")
+
+    @staticmethod
+    def _convert_rect_to_tuple(rect):
+        return rect.x, rect.y, rect.w, rect.h
+
+    @staticmethod
+    def _sharpen(img_o):
+        img_b = cv2.GaussianBlur(img_o, ksize=[3, 3], sigmaX=1, sigmaY=1)
+        img_s = cv2.addWeighted(img_o, 3.0, img_b, -2.0, 0)
+        return img_s
+
+    def _generate_dictionaries(self):
+        with pyczi.open_czi(self.path) as sl:
+            total_bounding_rectangle = sl.total_bounding_rectangle
+            meta = sl.metadata["ImageDocument"]["Metadata"]
+
+            self.associated_images["thumbnail"] = PIL.Image.fromarray(
+                cv2.cvtColor(sl.read(zoom=0.005), cv2.COLOR_BGR2RGB)
+            )
+
+        x, y, w, h = self._convert_rect_to_tuple(total_bounding_rectangle)
+        self.level_dimensions = tuple(
+            (int(w / (2**i)), int(h / (2.0**i))) for i in range(self.levels)
+        )
+        self.level_downsamples = tuple(2.0**i for i in range(self.levels))
+        mpp = {
+            m["@Id"]: float(m["Value"]) * 1e6
+            for m in meta["Scaling"]["Items"]["Distance"]
+        }
+        self.properties["openslide.mpp-x"] = mpp["X"]
+        self.properties["openslide.mpp-y"] = mpp["Y"]
+        self.tx = x
+        self.ty = y
+
+    def read_region(self, crds, level, size):
+        with pyczi.open_czi(self.path) as sl:
+            img = sl.read(
+                # plane={"T": 0, "Z": 0, "C": 0},
+                zoom=1.0 / (2**level),
+                roi=(
+                    self.tx + crds[0],
+                    self.ty + crds[1],
+                    size[0] * (2**level),
+                    size[1] * (2**level),
+                ),
+            )
+
+        if self.sharpen_img:
+            img = self._sharpen(img)
+        return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+
 # Adapted from  https://github.com/christianabbet/SRA
 # Original Author: Christian Abbet
 class WholeSlideDataset(Dataset):
@@ -148,12 +232,23 @@ class WholeSlideDataset(Dataset):
         """
 
         extension = pathlib.Path(path).suffix
-        if extension != ".svs" and extension != ".mrxs" and extension != ".tif":
-            raise NotImplementedError("Only *.svs, *.tif and *.mrxs files supported")
+        if (
+            extension != ".svs"
+            and extension != ".mrxs"
+            and extension != ".tif"
+            and extension != ".czi"
+        ):
+            raise NotImplementedError(
+                "Only *.svs, *.tif, *.czi, and *.mrxs files supported"
+            )
 
         # Load and create slide and affect default values
         self.path = path
-        self.s = openslide.open_slide(self.path)
+        self.s = (
+            openslide.open_slide(self.path)
+            if extension != ".czi"
+            else czi_wrapper(self.path)
+        )
         self.crop_sizes_px = crop_sizes_px
         self.crop_magnifications = crop_magnifications
         self.transform = transform
@@ -258,10 +353,15 @@ class WholeSlideDataset(Dataset):
         """
         if default_background is None:
             default_background = (255, 255, 255)
-
-        image.load()
-        background = PIL.Image.new("RGB", image.size, default_background)
-        background.paste(image, mask=image.split()[3])
+        if type(image) == np.ndarray:
+            if image.shape[-1] == 3:
+                return image
+            else:
+                return cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+        else:
+            image.load()
+            background = PIL.Image.new("RGB", image.size, default_background)
+            background.paste(image, mask=image.split()[3])
         return background
 
     @staticmethod
