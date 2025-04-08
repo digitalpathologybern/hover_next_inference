@@ -4,7 +4,6 @@ import geojson
 import openslide
 import cv2
 from skimage.measure import regionprops
-from src.post_process_utils import get_openslide_info
 from src.constants import (
     CLASS_LABELS_LIZARD,
     CLASS_LABELS_PANNUKE,
@@ -22,16 +21,23 @@ def create_geojson(polygons, classids, lookup, params):
         poly = np.array(poly)
         poly = poly[:, [1, 0]] * params["ds_factor"]
         poly = poly.tolist()
+            
+        geom = geojson.Polygon([poly], precision=2)
+        if not geom.is_valid:
+            print(f"Polygon {i}:{[poly]} is not valid, skipping...")
+            continue
         # poly.append(poly[0])
+        measurements = {classifications: 0 for classifications in CLASS_LABELS_PANNUKE.keys()}
+        measurements[lookup[cid]] = 1
         feature = geojson.Feature(
-            geometry=geojson.LineString(poly, precision=2),
+            geometry=geojson.Polygon([poly], precision=2),
             properties={
                 "Name": f"Nuc {i}",
                 "Type": "Polygon",
-                "classification": {
-                    "name": lookup[cid],
-                    "color": COLORS_LIZARD[cid - 1],
-                },
+                "color": COLORS_LIZARD[cid - 1],
+                "classification": lookup[cid],
+                "measurements": measurements,
+                "objectType": "tile"
             },
         )
         features.append(feature)
@@ -70,7 +76,7 @@ def create_tsvs(pcls_out, params):
         i += 1
 
 
-def cont(x):
+def cont(x, offset=None):
     _, im, bb = x
     im = np.pad(im.astype(np.uint8), 1, mode="constant", constant_values=0)
 
@@ -91,9 +97,13 @@ def cont(x):
             )[0][0].reshape(-1, 2)[:, [1, 0]]
             / 2.0
         )
-    cont = (cont + bb[0:2] - 1).tolist()
+    if offset is not None:
+        cont = (cont + offset + bb[0:2] - 1).tolist()
+    else:
+        cont = (cont + bb[0:2] - 1).tolist()
     # close polygon:
-    cont.append(cont[0])
+    if cont[0] != cont[-1]:
+        cont.append(cont[0])
     return cont
 
 

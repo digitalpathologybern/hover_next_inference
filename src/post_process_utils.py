@@ -9,6 +9,7 @@ import openslide
 from skimage.segmentation import watershed
 from scipy.ndimage import find_objects
 from numcodecs import Blosc
+from src.viz_utils import cont
 from skimage.measure import regionprops
 from src.constants import (
     MIN_THRESHS_LIZARD,
@@ -46,7 +47,7 @@ def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
     return pcls_out | pcls_new
 
 
-def write(pinst_out, pcls_out, running_max, res, params):
+def write(pinst_out, pcls_out, running_max, res, params, class_labels, res_poly):
     pinst_, pcls_, max_, t_, skip = res
     if not skip:
         if params["input_type"] != "wsi":
@@ -110,9 +111,15 @@ def write(pinst_out, pcls_out, running_max, res, params):
             old_ids = np.concatenate(old_ids)
             pcls_out = update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids)
             pinst_out[t_[2] : t_[3], t_[0] : t_[1]] = pinst_
+            props = [(p.label, p.image, p.bbox) for p in regionprops(np.asarray(pinst_))]
+            if params["save_polygon"]:
+                class_labels_partial = [pcls_out[str(p[0])] for p in props]
+                res_poly_partial = [cont(i, [t_[2], t_[0]]) for i in props]
+                class_labels.extend(class_labels_partial)
+                res_poly.extend(res_poly_partial)
             # res.task_done()
 
-    return pinst_out, pcls_out, running_max
+    return pinst_out, pcls_out, running_max, class_labels, res_poly
 
 
 def work(tcrd, ds_coord, z, params):

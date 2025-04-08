@@ -7,7 +7,7 @@ pandas
 tqdm
 itk
 matplotlib
-mahotas@git+https://github.com/luispedro/mahotas.git
+mahotas
 pandas
 jupyterlab
 zarr
