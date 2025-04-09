@@ -27,7 +27,7 @@ def create_geojson(polygons, classids, lookup, params):
             print(f"Polygon {i}:{[poly]} is not valid, skipping...")
             continue
         # poly.append(poly[0])
-        measurements = {classifications: 0 for classifications in CLASS_LABELS_PANNUKE.keys()}
+        measurements = {classifications: 0 for classifications in lookup.values()}
         measurements[lookup[cid]] = 1
         feature = geojson.Feature(
             geometry=geojson.Polygon([poly], precision=2),
