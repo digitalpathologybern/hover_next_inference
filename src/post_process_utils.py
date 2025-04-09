@@ -423,7 +423,7 @@ def get_wsi(wsi_path, read_ds=32, pannuke=False, tile_size=256, padding_factor=0
         padding_factor=padding_factor,
         ratio_object_thresh=0.0001,
     )
-    sl = openslide.open_slide(wsi_path)
+    sl = ws_ds.s  # openslide.open_slide(wsi_path)
     sl_info = get_openslide_info(sl)
     target_level = np.argwhere(np.isclose(sl_info["level_downsamples"], read_ds)).item()
     ds_coord = ws_ds.crop_metadatas[0]
@@ -630,9 +630,9 @@ def get_shapes(params, nclasses):
         print("getting coords:")
         ds_coord = dataset.crop_metadatas[0][:, 2:4].copy()
         try:
-            with openslide.open_slide(params["p"]) as sl:
-                bounds_x = int(sl.properties["openslide.bounds-x"])  # 158208
-                bounds_y = int(sl.properties["openslide.bounds-y"])  # 28672
+            sl = dataset.s
+            bounds_x = int(sl.properties["openslide.bounds-x"])  # 158208
+            bounds_y = int(sl.properties["openslide.bounds-y"])  # 28672
         except KeyError:
             bounds_x = 0
             bounds_y = 0
@@ -640,17 +640,17 @@ def get_shapes(params, nclasses):
         ds_coord -= np.array([bounds_x, bounds_y])
 
         ccrop = int(tile_size * padding_factor)
-        rel_res = np.isclose(dataset.mpp, LUT_MAGNIFICATION_MPP, rtol=0.05)
+        rel_res = np.isclose(dataset.mpp, LUT_MAGNIFICATION_MPP, rtol=0.2)
         if sum(rel_res) != 1:
             raise NotImplementedError(
                 "Currently no support for images with this resolution. Check src.constants in LUT_MAGNIFICATION_MPP and LUT_MAGNIFICATION_X to add the resultion - downsampling pair"
             )
         else:
             ds_factor = LUT_MAGNIFICATION_X[rel_res.argmax()] / level
-            if ds_factor < 1:
-                raise NotImplementedError(
-                    "The specified model does not support images at this resolution. Consider supplying a higher resolution image"
-                )
+            # if ds_factor < 1:
+            #     raise NotImplementedError(
+            #         "The specified model does not support images at this resolution. Consider supplying a higher resolution image"
+            #     )
             ds_coord /= ds_factor
 
         ds_coord += (tile_size - ccrop) // 2

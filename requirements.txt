@@ -26,3 +26,4 @@ numcodecs
 imagecodecs
 timm==0.9.6
 geojson
+pylibCZIrw

@@ -41,7 +41,8 @@ If you are manually downloading weights, unzip them in the directory, such that 
 ## WSI Inference
 
 This pipeline uses OpenSlide to read images, and therefore supports all formats which are supported by OpenSlide. 
-If you want to run this pipeline on custom ome.tif files, ensure that the necessary metadata such as resolution, downsampling and dimensions are available.
+If you want to run this pipeline on custom ome.tif files, ensure that the necessary metadata such as resolution, downsampling and dimensions are available. 
+Additionally, czi is is supported via pylibCZIrw.
 Before running a slide, choose [appropriate parameters for your machine](#optimizing-inference-for-your-machine)
 
 To run a single slide:
@@ -93,11 +94,6 @@ Support for other datatypes are easy to implement. Check the NPYDataloader for r
 
 By default, the pipeline produces an instance-map, a class-lookup with centroids and a number of .tsv files to load in QuPath.
 sample_analysis.ipynb shows exemplarily how to use the files.
-
-### Polygon/geojson output
-
-If you only need to vizualize some examples on WSI, it might be useful to use a geojson output.
-For this, you can add `--save_polygon` as an argument. However, polygon creation and saving takes additional time and is not recommended for large scale analyses.
 
 ## Docker and Apptainer/Singularity Container:
 
