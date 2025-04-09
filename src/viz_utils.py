@@ -8,6 +8,7 @@ from src.constants import (
     CLASS_LABELS_LIZARD,
     CLASS_LABELS_PANNUKE,
     COLORS_LIZARD,
+    COLORS_PANNUKE,
     CONIC_MPP,
     PANNUKE_MPP,
 )
@@ -15,6 +16,7 @@ from src.constants import (
 
 def create_geojson(polygons, classids, lookup, params):
     features = []
+    colors = COLORS_PANNUKE if params["pannuke"] else COLORS_LIZARD 
     if isinstance(classids[0], (list, tuple)):
         classids = [cid[0] for cid in classids]
     for i, (poly, cid) in enumerate(zip(polygons, classids)):
@@ -34,7 +36,7 @@ def create_geojson(polygons, classids, lookup, params):
             properties={
                 "Name": f"Nuc {i}",
                 "Type": "Polygon",
-                "color": COLORS_LIZARD[cid - 1],
+                "color": colors[cid - 1],
                 "classification": lookup[cid],
                 "measurements": measurements,
                 "objectType": "tile"
