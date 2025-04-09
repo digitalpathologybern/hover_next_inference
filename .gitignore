@@ -207,3 +207,7 @@ sample_cls.bmp
 sample_cls.jpg
 sample_he.jpg
 testo.sh
+debug.py
+direct_cpu_pp.sh
+run_inference_container_jc.sh
+sample_analysis.ipynb
