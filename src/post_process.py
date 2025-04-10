@@ -16,6 +16,11 @@ import json
 import os
 from typing import Union
 from tqdm.auto import tqdm
+from src.viz_utils import create_geojson
+from src.constants import (
+    CLASS_LABELS_LIZARD,
+    CLASS_LABELS_PANNUKE,
+)
 
 
 def post_process_main(
@@ -71,11 +76,13 @@ def post_process_main(
     ]
     pcls_out = {}
     running_max = 0
+    class_labels = []
+    res_poly = []
     for future in tqdm(
         concurrent.futures.as_completed(tile_processors), total=len(tile_processors)
     ):
-        pinst_out, pcls_out, running_max = write(
-            pinst_out, pcls_out, running_max, future.result(), params
+        pinst_out, pcls_out, running_max, class_labels, res_poly = write(
+            pinst_out, pcls_out, running_max, future.result(), params, class_labels, res_poly
         )
     executor.shutdown(wait=False)
 
@@ -91,6 +98,12 @@ def post_process_main(
             create_tsvs(pcls_out, params)
             # TODO this is way to slow for large images
             if params["save_polygon"]:
-                create_polygon_output(pinst_out, pcls_out, params)
+                pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
+                create_geojson(
+                    res_poly,
+                    class_labels,
+                    dict((v, k) for k, v in pred_keys.items()),
+                    params,
+                )
 
     return pinst_out
