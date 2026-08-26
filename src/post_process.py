@@ -35,9 +35,17 @@ def save_class_probs(pcls_out, prob_id_blocks, prob_mat_blocks, params):
         return
     ids = np.concatenate(prob_id_blocks)
     mat = np.vstack(prob_mat_blocks)
-    order = np.argsort(ids)
+    if len(ids) == 0:
+        return
+    order = np.argsort(ids, kind="stable")
     sorted_ids = ids[order]
     sorted_mat = mat[order]
+    # keep only the last occurrence of each id: later tiles override
+    # earlier ones during overlap resolution
+    keep = np.ones(len(sorted_ids), dtype=bool)
+    keep[:-1] = sorted_ids[1:] != sorted_ids[:-1]
+    sorted_ids = sorted_ids[keep]
+    sorted_mat = sorted_mat[keep]
 
     pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
     id_to_name = {v: k for k, v in pred_keys.items()}
