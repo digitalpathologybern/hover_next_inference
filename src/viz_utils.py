@@ -3,6 +3,8 @@ import numpy as np
 import geojson
 import openslide
 import cv2
+from shapely.geometry import shape
+from shapely.validation import make_valid
 from skimage.measure import regionprops
 from src.constants import (
     CLASS_LABELS_LIZARD,
@@ -22,27 +24,39 @@ def create_geojson(polygons, classids, lookup, params):
     for i, (poly, cid) in enumerate(zip(polygons, classids)):
         poly = np.array(poly)
         poly = poly[:, [1, 0]] * params["ds_factor"]
-        poly = poly.tolist()
-            
-        geom = geojson.Polygon([poly], precision=2)
-        if not geom.is_valid:
-            print(f"Polygon {i}:{[poly]} is not valid, skipping...")
+        # Round before validation/repair so the saved geometry (precision=2)
+        # is exactly what was validated.
+        poly = np.round(poly, 2).tolist()
+        if len(poly) < 4:
+            print(f"Polygon {i} has too few points, skipping...")
             continue
-        # poly.append(poly[0])
+
+        repaired = make_valid(shape({"type": "Polygon", "coordinates": [poly]}))
+        geoms = [repaired] if repaired.geom_type == "Polygon" else list(repaired.geoms)
+        geoms = [g for g in geoms if not g.is_empty and g.geom_type == "Polygon"]
+        if not geoms:
+            print(f"Polygon {i} could not be repaired, skipping...")
+            continue
+
         measurements = {classifications: 0 for classifications in lookup.values()}
         measurements[lookup[cid]] = 1
-        feature = geojson.Feature(
-            geometry=geojson.Polygon([poly], precision=2),
-            properties={
-                "Name": f"Nuc {i}",
-                "Type": "Polygon",
-                "color": colors[cid - 1],
-                "classification": lookup[cid],
-                "measurements": measurements,
-                "objectType": "tile"
-            },
-        )
-        features.append(feature)
+        for geom_coords in geoms:
+            rings = [[list(coord) for coord in ring.coords] for ring in [
+                geom_coords.exterior,
+                *geom_coords.interiors,
+            ]]
+            feature = geojson.Feature(
+                geometry=geojson.Polygon(rings),
+                properties={
+                    "Name": f"Nuc {i}",
+                    "Type": "Polygon",
+                    "color": colors[cid - 1],
+                    "classification": lookup[cid],
+                    "measurements": measurements,
+                    "objectType": "tile"
+                },
+            )
+            features.append(feature)
     feature_collection = geojson.FeatureCollection(features)
     with open(params["output_dir"] + "/poly.geojson", "w") as outfile:
         geojson.dump(feature_collection, outfile)
