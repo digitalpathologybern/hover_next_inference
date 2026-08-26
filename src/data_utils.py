@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 from typing import Optional, List, Tuple, Callable
 from skimage.morphology import remove_small_objects, disk, dilation
-import PIL
+import PIL.Image
 import pathlib
 import cv2
 from src.constants import LUT_MAGNIFICATION_MPP, LUT_MAGNIFICATION_X
