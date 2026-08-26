@@ -48,11 +48,19 @@ def update_dicts(pinst_, pcls_, pcls_out, t_, old_ids, initial_ids):
 
 
 def write(pinst_out, pcls_out, running_max, res, params, class_labels, res_poly):
-    pinst_, pcls_, max_, t_, skip = res
+    if len(res) == 6:
+        pinst_, pcls_, max_, t_, skip, tile_probs = res
+    else:
+        pinst_, pcls_, max_, t_, skip = res
+        tile_probs = None
+    probs_out = None
     if not skip:
         if params["input_type"] != "wsi":
             pinst_.vindex[pinst_[:] != 0] += running_max
             pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
+            if tile_probs is not None:
+                ids, mat = tile_probs
+                probs_out = (ids + running_max, mat)
             props = [(p.label, p.centroid) for p in regionprops(pinst_)]
             pcls_new = {}
             for id_, cen in props:
@@ -70,6 +78,9 @@ def write(pinst_out, pcls_out, running_max, res, params, class_labels, res_poly)
             msk = pinst_ != 0
             pinst_[msk] += running_max
             pcls_ = {str(int(k) + running_max): v for k, v in pcls_.items()}
+            if tile_probs is not None:
+                ids, mat = tile_probs
+                probs_out = (ids + running_max, mat)
             running_max += max_
             initial_ids = np.unique(pinst_[msk])
             old_ids = []
@@ -119,6 +130,8 @@ def write(pinst_out, pcls_out, running_max, res, params, class_labels, res_poly)
                 res_poly.extend(res_poly_partial)
             # res.task_done()
 
+    if probs_out is not None:
+        return pinst_out, pcls_out, running_max, class_labels, res_poly, probs_out
     return pinst_out, pcls_out, running_max, class_labels, res_poly
 
 
@@ -174,18 +187,35 @@ def work(tcrd, ds_coord, z, params):
         pred_inst,
         max_hole_size,
     )
-    pred_ct = make_ct(out_cls, pred_inst)
+    save_probs = params.get("save_probabilities", False)
+    if save_probs:
+        pred_ct, tile_probs = make_ct(out_cls, pred_inst, return_probs=True)
+    else:
+        pred_ct = make_ct(out_cls, pred_inst)
     del out_cls
     gc.collect()
 
-    processed = remove_obj_cls(pred_inst, pred_ct, best_min_threshs, best_max_threshs)
-    # TODO why is this here?
-    pred_inst, pred_ct = processed
+    if save_probs:
+        processed = remove_obj_cls(
+            pred_inst, pred_ct, best_min_threshs, best_max_threshs, probs=tile_probs
+        )
+        pred_inst, pred_ct, tile_probs = processed
+    else:
+        pred_inst, pred_ct = remove_obj_cls(
+            pred_inst, pred_ct, best_min_threshs, best_max_threshs
+        )
     max_inst = np.max(pred_inst)
     pred_inst = zarr.array(
         pred_inst.astype(np.int32),
         compressor=Blosc(cname="zstd", clevel=3, shuffle=Blosc.SHUFFLE),
     )
+    if save_probs:
+        ids = np.fromiter(map(int, tile_probs.keys()), dtype=np.int64)
+        if len(ids):
+            mat = np.stack([tile_probs[str(i)] for i in ids]).astype(np.float32)
+        else:
+            mat = np.zeros((0, 0), dtype=np.float32)
+        return (pred_inst, pred_ct, max_inst, tcrd, skip, (ids, mat))
     return (pred_inst, pred_ct, max_inst, tcrd, skip)
 
 
@@ -500,7 +530,7 @@ def post_proc_inst(
     return out_
 
 
-def make_ct(pred_class, instance_map):
+def make_ct(pred_class, instance_map, return_probs=False):
     if type(pred_class) != np.ndarray:
         pred_class = pred_class[:]
     slices = find_objects(instance_map)
@@ -508,23 +538,30 @@ def make_ct(pred_class, instance_map):
     # pred_class = softmax(pred_class,0)
     out = []
     out.append((0, 0))
+    probs = {} if return_probs else None
     for i, sl in enumerate(slices):
         i += 1
         if sl:
             inst = instance_map[sl] == i
             i_cls = pred_class[sl][inst]
-            i_cls = np.sum(i_cls, axis=0).argmax() + 1
-            out.append((i, i_cls))
+            i_cls = np.sum(i_cls, axis=0)
+            if return_probs:
+                e = np.exp(i_cls - np.max(i_cls))
+                probs[str(i)] = (e / e.sum()).astype(np.float32)
+            out.append((i, int(i_cls.argmax()) + 1))
     out_ = np.array(out)
     pred_ct = {str(k): int(v) for k, v in out_ if v != 0}
+    if return_probs:
+        return pred_ct, probs
     return pred_ct
 
 
-def remove_obj_cls(pred_inst, pred_cls_dict, best_min_threshs, best_max_threshs):
+def remove_obj_cls(pred_inst, pred_cls_dict, best_min_threshs, best_max_threshs, probs=None):
     out_oi = np.zeros_like(pred_inst, dtype=np.int64)
     i_ = 1
     out_oc = []
     out_oc.append((0, 0))
+    out_probs = {} if probs is not None else None
     slices = find_objects(pred_inst)
 
     for i, sl in enumerate(slices):
@@ -533,10 +570,14 @@ def remove_obj_cls(pred_inst, pred_cls_dict, best_min_threshs, best_max_threshs)
         cls_ = pred_cls_dict[str(i)]
         if (px > best_min_threshs[cls_ - 1]) & (px < best_max_threshs[cls_ - 1]):
             out_oc.append((i_, cls_))
+            if probs is not None:
+                out_probs[str(i_)] = probs[str(i)]
             out_oi[sl][pred_inst[sl] == i] = i_
             i_ += 1
     out_oc = np.array(out_oc)
     out_dict = {str(k): int(v) for k, v in out_oc if v != 0}
+    if probs is not None:
+        return out_oi, out_dict, out_probs
     return out_oi, out_dict
 
 

@@ -14,6 +14,7 @@ from concurrent.futures import ProcessPoolExecutor
 import concurrent.futures
 import json
 import os
+import numpy as np
 from typing import Union
 from tqdm.auto import tqdm
 from src.viz_utils import create_geojson
@@ -21,6 +22,41 @@ from src.constants import (
     CLASS_LABELS_LIZARD,
     CLASS_LABELS_PANNUKE,
 )
+
+
+def save_class_probs(pcls_out, prob_id_blocks, prob_mat_blocks, params):
+    """Stream per-nucleus class probabilities to class_probs.csv.
+
+    Rows are emitted for exactly the nuclei present in ``pcls_out`` (the
+    source of truth), so entries dropped during overlap resolution are
+    excluded without needing to remove them from the probability blocks.
+    """
+    if not prob_id_blocks:
+        return
+    ids = np.concatenate(prob_id_blocks)
+    mat = np.vstack(prob_mat_blocks)
+    order = np.argsort(ids)
+    sorted_ids = ids[order]
+    sorted_mat = mat[order]
+
+    pred_keys = CLASS_LABELS_PANNUKE if params["pannuke"] else CLASS_LABELS_LIZARD
+    id_to_name = {v: k for k, v in pred_keys.items()}
+    n_classes = sorted_mat.shape[1] if sorted_mat.ndim == 2 else 0
+    header = ["id", "class"] + [id_to_name.get(i + 1, str(i + 1)) for i in range(n_classes)]
+
+    out_path = os.path.join(params["output_dir"], "class_probs.csv")
+    print("saving class probabilities...")
+    with open(out_path, "w") as f:
+        f.write(",".join(header) + "\n")
+        for k in pcls_out:
+            nucleus_id = int(k)
+            pos = np.searchsorted(sorted_ids, nucleus_id)
+            if pos >= len(sorted_ids) or sorted_ids[pos] != nucleus_id:
+                continue
+            cls = int(pcls_out[k][0])
+            name = id_to_name.get(cls, str(cls))
+            probs_str = ",".join(f"{p:.6f}" for p in sorted_mat[pos])
+            f.write(f"{nucleus_id},{name},{probs_str}\n")
 
 
 def post_process_main(
@@ -75,15 +111,23 @@ def post_process_main(
         executor.submit(work, tcrd, ds_coord, z, params) for tcrd in tile_crds
     ]
     pcls_out = {}
+    prob_id_blocks = []
+    prob_mat_blocks = []
     running_max = 0
     class_labels = []
     res_poly = []
     for future in tqdm(
         concurrent.futures.as_completed(tile_processors), total=len(tile_processors)
     ):
-        pinst_out, pcls_out, running_max, class_labels, res_poly = write(
+        result = write(
             pinst_out, pcls_out, running_max, future.result(), params, class_labels, res_poly
         )
+        if len(result) == 6:
+            pinst_out, pcls_out, running_max, class_labels, res_poly, probs_out = result
+            prob_id_blocks.append(probs_out[0])
+            prob_mat_blocks.append(probs_out[1])
+        else:
+            pinst_out, pcls_out, running_max, class_labels, res_poly = result
     executor.shutdown(wait=False)
 
     if params["output_dir"] is not None:
@@ -105,5 +149,8 @@ def post_process_main(
                     dict((v, k) for k, v in pred_keys.items()),
                     params,
                 )
+
+        if params.get("save_probabilities", False):
+            save_class_probs(pcls_out, prob_id_blocks, prob_mat_blocks, params)
 
     return pinst_out

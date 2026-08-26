@@ -180,6 +180,11 @@ if __name__ == "__main__":
         help="save output as polygons to load in qupath",
     )
     parser.add_argument(
+        "--save_probabilities",
+        action="store_true",
+        help="save per-cell class probabilities to class_probs.csv",
+    )
+    parser.add_argument(
         "--tile_size",
         type=int,
         default=256,
