@@ -1,4 +1,5 @@
-openslide-python==1.3.1
+openslide-python==1.4.6
+openslide-bin==4.0.1.2
 scikit-image==0.22.0
 scikit-learn==1.3.2
 scipy==1.11.4
